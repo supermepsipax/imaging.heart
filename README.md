@@ -33,6 +33,9 @@ surrogate for disease risk in suspected coronary artery disease without stenosis
 15.1 (2025): 254.
 
 [4] Coronary Atlas project, https://www.coronaryatlas.org/
+
 Image-based geometric descriptors of the coronary artery tree
+
 Supervisor: Eva Breznik
+
 Project track: Imaging -> Computer Science

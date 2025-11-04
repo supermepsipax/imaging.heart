@@ -1,8 +1,6 @@
 import numpy as np
 from skimage.morphology import skeletonize
 from scipy import ndimage
-import networkx as nx
-from scipy.spatial import KDTree
 
 def ensure_continous_body(binary_mask, debug=False):
     """

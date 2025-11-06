@@ -4,13 +4,13 @@ from scipy import ndimage
 # import networkx as nx
 
 
-def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask):
+def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask):     
     """
     Takes the single voxel representation of the original binary mask and finds the
     bifurcation coordinates.
 
-    The skeletonized mask is first convolved with a 3x3 array of 1's, this returns a convolved
-    array of the same shape where each element corresponds to how many non-zero voxels were in this 3x3 region around each
+    The skeletonized mask is first convolved with a 3x3x3 array of 1's, this returns a convolved
+    array of the same shape where each element corresponds to how many non-zero voxels were in this 3x3x3 region around each
     original voxel. It can be assumed that for every non-zero voxel in the original skeletonized mask its
     corresponding voxel in the convolved mask can be labelled as an endpoint, bifurcation, or a point inbetween.
 

@@ -6,7 +6,9 @@ This package provides visualization functions for:
 """
 
 from .visualize_2d import create_projection_view
+from .visualize_3d import visualize_3d_graph
 
 __all__ = [
     'create_projection_view',
+    'visualize_3d_graph',
 ]

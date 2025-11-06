@@ -15,11 +15,11 @@ else:
 
 create_projection_view(binary_mask)
 
-reduced_binary_mask = extract_centerline_skimage(binary_mask)
+centerline_binary_mask = extract_centerline_skimage(binary_mask)
 
-create_projection_view(reduced_binary_mask)
+create_projection_view(centerline_binary_mask)
 
-endpoints, bifurcation_points = extract_endpoint_and_bifurcation_coordinates(reduced_binary_mask)
+endpoints, bifurcation_points = extract_endpoint_and_bifurcation_coordinates(centerline_binary_mask)
 
 print('Endpoint Coordinates:')
 print(endpoints)

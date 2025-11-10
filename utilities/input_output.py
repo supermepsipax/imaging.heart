@@ -9,4 +9,4 @@ def load_nrrd_mask(path, verbose=False):
         for heading, value in header.items():
             print(f'{heading}: {value}')
 
-    return data
+    return data, header

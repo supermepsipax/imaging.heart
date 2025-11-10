@@ -62,7 +62,7 @@ def visualize_3d_graph(graph, binary_mask=None):
     path_trace = go.Scatter3d(
         x=path_x, y=path_y, z=path_z,
         mode='lines',
-        line=dict(color='lightblue', width=4),
+        line=dict(color='darkgreen', width=5),
         hoverinfo='none',
         name='Actual voxel path'
     )

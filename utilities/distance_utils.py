@@ -1,6 +1,5 @@
 import numpy as np
-from scipy import ndimage
-
+import networkx as nx
 
 def compute_branch_path_length(edge, voxel_path, spacing_information):
     """
@@ -61,20 +60,22 @@ def compute_branch_lengths_of_graph(graph, spacing_information):
         spacing_information (tuple): The spacing information for distances in the x,y,z direction
 
     Returns:
-        branch_lengths: Dictionary mapping branch identifiers (e.g., 'branch_0', 'branch_1') to their path lengths and direct lengths
+        updated_graph (networkx.Graph): A new graph object with distance information encoded into edge data
+                                        edge_data['path_length_mm'] => the absolute path length
+                                        edge_data['direct_length_mm'] => the length from the first to last point in a path
     """
-    branch_lengths = {}
+    if graph.is_directed():
+        updated_graph = nx.DiGraph(graph)
+    else:
+        updated_graph = nx.Graph(graph)
 
-    for index, edge in enumerate(list(graph.edges())):
-        edge_info = {'edge': edge}
-        voxel_path = graph.edges[edge]['voxels']
+    for edge in list(updated_graph.edges()):
+
+        voxel_path = updated_graph.edges[edge]['voxels']
         path_length, direct_length = compute_branch_path_length(edge, voxel_path, spacing_information)
-        edge_info['path_length'] = path_length
-        edge_info['direct_length'] = direct_length
-        branch_lengths[f'branch_{index}'] = edge_info
+        updated_graph.edges[edge]["path_length_mm"] = path_length
+        updated_graph.edges[edge]["direct_length_mm"] = direct_length
 
-    return branch_lengths
-
-
+    return updated_graph
 
 

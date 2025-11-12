@@ -14,9 +14,14 @@ from utilities import (
     compute_branch_diameters_of_graph,
     compute_branch_lengths_of_graph,
     merge_branch_metrics,
+    make_directed_graph,
+    determine_origin_node_from_diameter,
+    traverse_graph_and_compute_angles,
+    compute_angles_at_bifurcation,
 
 )
 from visualizations import create_projection_view, visualize_3d_graph
+from analysis import convert_graph_to_dataframes 
 import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
@@ -44,10 +49,10 @@ if is_continous:
 else:
     print("it ain't continous")
     sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
-    original_one_sided_mask = sorted_bodies[0]
+    original_one_sided_mask = sorted_bodies[1]
     # original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
 
-# create_projection_view(binary_mask)
+create_projection_view(binary_mask)
 
 # This calculates each voxels euclidean distance away from the background (0s) which I will use later on
 # to approximate vessel diameters, although I think we need a more precise final approach.
@@ -55,6 +60,7 @@ else:
 distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
 
 skeleton_binary_mask = extract_centerline_skimage(original_one_sided_mask)
+
 
 skeleton_binary_mask_no_processing = skeleton_binary_mask
 
@@ -85,14 +91,33 @@ sparse_skeleton_graph = skeleton_to_sparse_graph(skeleton_binary_mask, bifurcati
 print(f'Unprocessed Skeleton has {unprocessed_sparse_skeleton_graph.number_of_nodes()} nodes and {unprocessed_sparse_skeleton_graph.number_of_edges()} edges')
 print(f'Processed Skeleton has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges')
 
-diameters = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
-lengths = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info )
-branch_metrics = merge_branch_metrics(diameters, lengths)
-print('Branch Metrics')
-for branch_name, branch_value in branch_metrics.items():
-    print(branch_name)
-    for key, value in branch_value.items():
-        print(f'{key}: {value}')
+sparse_skeleton_graph = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
+sparse_skeleton_graph = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info )
+
+origin_node = determine_origin_node_from_diameter(sparse_skeleton_graph)
+
+directed_skeleton_graph = make_directed_graph(sparse_skeleton_graph, origin_node)
 
 
-visualize_3d_graph(sparse_skeleton_graph, original_one_sided_mask)
+# diameters = compute_branch_diameters_of_graph(directed_skeleton_graph, distance_array)
+# lengths = compute_branch_lengths_of_graph(directed_skeleton_graph, spacing_info )
+# branch_metrics = merge_branch_metrics(diameters, lengths)
+# print('Branch Metrics')
+# for branch_name, branch_value in branch_metrics.items():
+#     print(branch_name)
+#     for key, value in branch_value.items():
+#         print(f'{key}: {value}')
+
+final_graph = traverse_graph_and_compute_angles(directed_skeleton_graph, spacing_info, min_depth_mm =1.0, max_depth_mm=5.0)
+
+# for bifurcation in results:
+#   print(f"Bifurcation at {bifurcation['bifurcation_node']}")
+#   print(f"  Inflow angle: {bifurcation['averaged_inflow_angle']:.2f}°")
+#   print(f"  Angle A: {bifurcation['averaged_angle_A']:.2f}°")
+#   print(f"  Angle B: {bifurcation['averaged_angle_B']:.2f}°")
+#   print(f"  Angle C: {bifurcation['averaged_angle_C']:.2f}°")
+
+
+
+convert_graph_to_dataframes(final_graph)
+visualize_3d_graph(final_graph, original_one_sided_mask)

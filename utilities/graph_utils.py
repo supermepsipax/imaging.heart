@@ -135,6 +135,21 @@ def skeleton_to_dense_graph(binary_mask):
 
     return graph
 
+def make_directed_graph(undirected_graph, origin_node):
+
+    directed_graph = nx.DiGraph()
+
+    for node, data in undirected_graph.nodes(data=True):
+        directed_graph.add_node(node, **data)
+
+    for u, v in nx.bfs_edges(undirected_graph, origin_node):
+        edge_data = undirected_graph.get_edge_data(u, v, default={}).copy()
+        
+        directed_graph.add_edge(u, v, **edge_data)
+        
+    return directed_graph
+
+
 
 def dense_graph_to_skeleton(graph, reference_mask=None):
     """
@@ -166,3 +181,5 @@ def dense_graph_to_skeleton(graph, reference_mask=None):
         binary_mask[node_coordinate] = 1
 
     return binary_mask
+
+

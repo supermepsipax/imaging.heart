@@ -1,5 +1,6 @@
 import plotly.graph_objects as go
 from skimage import measure
+import numpy as np
 
 def visualize_3d_graph(graph, binary_mask=None):
     """
@@ -94,4 +95,5 @@ def visualize_3d_graph(graph, binary_mask=None):
         title="3D Graph with Artery Surface"
     )
     fig.show()
+
 

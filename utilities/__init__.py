@@ -28,6 +28,7 @@ __all__ = [
     'find_connected_voxels',
     'skeleton_to_dense_graph',
     'dense_graph_to_skeleton',
+    'diameter_profile',
     'preprocess_binary_mask',
     'sort_labelled_bodies_by_size',
     'create_distance_transform_from_mask',

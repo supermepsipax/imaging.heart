@@ -4,4 +4,5 @@ plotly
 scipy
 scikit-image
 pynrrd
+pandas
 networkx

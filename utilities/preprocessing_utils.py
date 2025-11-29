@@ -16,6 +16,38 @@ def sort_labelled_bodies_by_size(labelled_bodies):
 
     return sorted_masks
 
+def resample_to_isotropic(binary_mask, original_spacing):
+    """
+    Resamples the 3D mask to an isotropic voxel spacing.
+
+    The function takes a binary mask and its voxel spacing, and resamples the mask so that
+    all axes get the same spacing. The target spacing is chosen as the smallest spacing in
+    the original mask.
+
+    Args:
+        binary_mask (np.ndarray): A 3D binary mask.
+        original_spacing (tuple): Voxel spacing for each axis of the input mask in mm.
+
+    Returns:
+        resampled_mask: The resampled, isotropic mask.
+        new_spacing: The new voxel spacing in mm.
+    """
+
+    # Using the smallest value as target as this corresponds to the highest resolution
+    target_spacing = min(original_spacing)
+
+    original_spacing = np.array(original_spacing)
+
+    # Computes scaling factors for each axis
+    scaling_factor = original_spacing / target_spacing
+
+    # Resamples the mask using nearest-neighbor interpolation (order 0)
+    resampled_mask = ndimage.zoom(binary_mask, zoom = scaling_factor, order = 0) # Order 0 because we have binary masks
+
+    new_spacing = tuple([target_spacing] * binary_mask.ndim)
+
+    return resampled_mask, new_spacing
+
 
 def preprocess_binary_mask(binary_mask, upsample_factor=2, sigma=1, threshold=0.5):
     """

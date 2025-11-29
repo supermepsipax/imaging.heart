@@ -1,7 +1,7 @@
 import numpy as np
-import networkx as nx
 from scipy import ndimage
-
+from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import map_coordinates
 
 def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
@@ -21,10 +21,9 @@ def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
 
     if space_information:
-        return ndimage.distance_transform_edt(binary_mask, sampling=space_information)
+        return ndimage.distance_transform_edt(binary_mask, sampling=space_information) 
     else:
         return ndimage.distance_transform_edt(binary_mask)
-
 
 def compute_average_diameter_of_branch(distance_array, branch_coordinates):
     """
@@ -57,7 +56,6 @@ def compute_average_diameter_of_branch(distance_array, branch_coordinates):
 
     return mean_diameter, median_diameter
 
-
 def compute_branch_diameters_of_graph(graph, distance_array):
     """
     Computes average diameters for all branches in a vessel graph.
@@ -72,54 +70,80 @@ def compute_branch_diameters_of_graph(graph, distance_array):
         distance_array (array): 3D distance transform array where values represent radii
 
     Returns:
-        updated_graph (networkx.Graph): A new graph object with diameter information encoded into edge data
-                                        edge_data['average_diameter_mm_edt'] => avg diameter using edt distance transform
-                                        edge_data['median_diameter_mm_edt'] => median diameter using edt distance transform
+        branch_diameters: Dictionary mapping branch identifiers (e.g., 'branch_0', 'branch_1') to their average + median diameters
     """
-    if graph.is_directed():
-        updated_graph = nx.DiGraph(graph)
+    branch_diameters = {}
+
+    for index, edge in enumerate(list(graph.edges())):
+        edge_info = {'edge': edge}
+        voxel_path = graph.edges[edge]['voxels']
+        average_diameter, median_diameter = compute_average_diameter_of_branch(distance_array, voxel_path)
+        edge_info['average_diameter'] = average_diameter
+        edge_info['median_diameter'] = median_diameter
+        branch_diameters[f'branch_{index}'] = edge_info
+
+    return branch_diameters
+
+def local_diameter(mask, center, tangent):
+    slice_mask = extract_plane(mask, center, tangent)  # pass both center + normal
+    dist_map = distance_transform_edt(slice_mask)
+    return 2 * np.max(dist_map)  # diameter = 2 * max radius
+
+
+def diameter_profile(mask, voxels):
+    profile = []
+    for i, v in enumerate(voxels):
+        tangent = tangent_vector(voxels, i)
+        d = local_diameter(mask, v, tangent)
+        profile.append(d)
+    return profile
+
+def summarize_profile(profile):
+    return {
+        'mean_diameter': np.mean(profile),
+        'median_diameter': np.median(profile),
+        'min_diameter': np.min(profile),
+        'max_diameter': np.max(profile),
+        'std_diameter': np.std(profile),
+        'slope': (profile[-1] - profile[0]) / len(profile) if len(profile) > 1 else 0
+    }
+
+
+def tangent_vector(voxels, i):
+    if i == 0:
+        return np.array(voxels[1]) - np.array(voxels[0])
+    elif i == len(voxels)-1:
+        return np.array(voxels[-1]) - np.array(voxels[-2])
     else:
-        updated_graph = nx.Graph(graph)
-
-    for edge in list(updated_graph.edges()):
-        voxel_path = updated_graph.edges[edge]["voxels"]
-        average_diameter, median_diameter = compute_average_diameter_of_branch(
-            distance_array, voxel_path
-        )
-        updated_graph.edges[edge]["average_diameter_mm_edt"] = average_diameter
-        updated_graph.edges[edge]["median_diameter_mm_edt"] = median_diameter
-
-    return updated_graph
-
-
-def determine_origin_node_from_diameter(graph, distance_array = None):
-    largest_diameter = 0
-    largest_edge = None
-
-    for edge in list(graph.edges()):
-        if 'average_diameter_mm_edt' in graph.edges[edge]:
-            average_diameter = graph.edges[edge]['average_diameter_mm_edt']
-        elif distance_array is not None:
-            voxel_path = graph.edges[edge]["voxels"]
-            average_diameter, median_diameter = compute_average_diameter_of_branch(distance_array, voxel_path)
-        else:
-            raise ValueError(
-                "Unable to determine branch diameter without existing diameter information or distance array"
-            )
-
-        if average_diameter > largest_diameter:
-            largest_diameter = average_diameter
-            largest_edge = edge
-
-    if largest_edge is not None:
-        if graph.degree[largest_edge[0]] == 1:
-            origin = largest_edge[0]
-        elif graph.degree[largest_edge[1]] == 1:
-            origin = largest_edge[1]
-        else:
-            origin = None
-        return origin
+        return np.array(voxels[i+1]) - np.array(voxels[i-1])
+    
+def plane_basis(normal):
+    normal = normal / np.linalg.norm(normal)
+    # pick arbitrary vector not parallel to normal
+    if abs(normal[0]) < 0.9:
+        ref = np.array([1,0,0])
     else:
-        raise ValueError(
-            "Unable to determine origin node from graph"
-        )
+        ref = np.array([0,1,0])
+    u = np.cross(normal, ref)
+    u /= np.linalg.norm(u)
+    v = np.cross(normal, u)
+    return u, v
+
+
+
+def extract_plane(mask, center, normal, size=20, resolution=1.0):
+    center = np.array(center)
+    u, v = plane_basis(normal)
+    # grid coordinates in plane
+    grid_range = np.arange(-size, size, resolution)
+    X, Y = np.meshgrid(grid_range, grid_range)
+    coords = center[:,None,None] + u[:,None,None]*X + v[:,None,None]*Y
+    # map to mask coordinates
+    slice_mask = map_coordinates(mask, [coords[0], coords[1], coords[2]], order=0, mode='nearest')
+    return slice_mask
+
+
+
+
+
+

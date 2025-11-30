@@ -2,22 +2,22 @@ import numpy as np
 from skimage.morphology import skeletonize
 from scipy import ndimage
 
-def ensure_continous_body(binary_mask, debug=False):
+def ensure_continuous_body(binary_mask, debug=False):
     """
-    Ensures the mask passed in is a single continous body.
+    Ensures the mask passed in is a single continuous body.
 
     First the structure of the mask will be copied to define what counts as 
     a connecting item, currently this assumes any pixel/voxel is "touching"
     if they are connected in any way, ie 26-point connectivity for 3d. Then
     the mask is split into seperate arrays where each array will be a single
-    continous body along with a count of how many continous bodies were present
+    continuous body along with a count of how many continuous bodies were present
     in the mask.
 
     Args:
         binary_mask (array): A numpy binary mask 
 
     Returns:
-        bool: True if a continous body, false otherwise
+        bool: True if a continuous body, false otherwise
 
     """
 
@@ -27,7 +27,7 @@ def ensure_continous_body(binary_mask, debug=False):
     labelled_bodies, num_of_bodies = ndimage.label(binary_mask, structure=connectivity_structure)
 
     if debug:
-        print(f'\nNumber of Continous Bodies: {num_of_bodies}')
+        print(f'\nNumber of continuous Bodies: {num_of_bodies}')
 
     return num_of_bodies == 1, labelled_bodies
 

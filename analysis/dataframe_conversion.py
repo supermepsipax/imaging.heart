@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 
-def convert_graph_to_dataframes(graph):
+def convert_graph_to_dataframes(graph,nodes_csv="nodes.csv", edges_csv="edges.csv"):
     """
     Converts a NetworkX graph into two pandas DataFrames for nodes and edges.
 
@@ -62,6 +62,9 @@ def convert_graph_to_dataframes(graph):
         edge_data.append(edge_dict)
 
     edges_df = pd.DataFrame(edge_data)
+    nodes_df.to_csv(nodes_csv, index=False)
+    edges_df.to_csv(edges_csv, index=False)
+
 
     print("=" * 80)
     print("NODES DATAFRAME")

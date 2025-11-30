@@ -181,5 +181,3 @@ def dense_graph_to_skeleton(graph, reference_mask=None):
         binary_mask[node_coordinate] = 1
 
     return binary_mask
-
-

@@ -77,5 +77,3 @@ def compute_branch_lengths_of_graph(graph, spacing_information):
         updated_graph.edges[edge]["direct_length_mm"] = direct_length
 
     return updated_graph
-
-

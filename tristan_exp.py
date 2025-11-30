@@ -13,12 +13,9 @@ from utilities import (
     create_distance_transform_from_mask,
     compute_branch_diameters_of_graph,
     compute_branch_lengths_of_graph,
-    merge_branch_metrics,
     make_directed_graph,
     determine_origin_node_from_diameter,
     traverse_graph_and_compute_angles,
-    compute_angles_at_bifurcation,
-
 )
 from visualizations import create_projection_view, visualize_3d_graph
 from analysis import convert_graph_to_dataframes 
@@ -26,7 +23,7 @@ import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/batch_1/Normal_2.nrrd"
+path = "data/batch_1/Normal_3.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -41,15 +38,16 @@ binary_mask = preprocess_binary_mask(binary_mask, upsample_factor=1)
 # This function will check the mask to see if it is one continous body, a boolean flag
 # indicates its continous while the labelled_bodies array is an array of the same shape
 # as binary_mask, but each unique continous body has a unique label, ie 0 = background, 1 = body 1, 2 = body 2 etc..
-is_continous, labelled_bodies = ensure_continous_body(binary_mask)
+is_continous, labelled_bodies = ensure_continous_body(binary_mask, debug=True)
 
+#CONNECTED COMPONENTS 3D
 if is_continous:
     print("is continous")
     original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
 else:
     print("it ain't continous")
     sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
-    original_one_sided_mask = sorted_bodies[1]
+    original_one_sided_mask = sorted_bodies[2]
     # original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
 
 create_projection_view(binary_mask)
@@ -60,7 +58,6 @@ create_projection_view(binary_mask)
 distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
 
 skeleton_binary_mask = extract_centerline_skimage(original_one_sided_mask)
-
 
 skeleton_binary_mask_no_processing = skeleton_binary_mask
 

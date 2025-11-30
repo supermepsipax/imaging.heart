@@ -21,7 +21,8 @@ def ensure_continous_body(binary_mask, debug=False):
 
     """
 
-    connectivity_structure = np.ones((3,) * binary_mask.ndim, dtype=int)
+    # connectivity_structure = np.ones((3,) * binary_mask.ndim, dtype=int)
+    connectivity_structure = np.ones((3,3,3), dtype=int)
 
     labelled_bodies, num_of_bodies = ndimage.label(binary_mask, structure=connectivity_structure)
 

@@ -17,7 +17,6 @@ from .preprocessing_utils import preprocess_binary_mask, sort_labelled_bodies_by
 from .diameter_utils import create_distance_transform_from_mask, compute_average_diameter_of_branch, compute_branch_diameters_of_graph, determine_origin_node_from_diameter
 from .distance_utils import compute_branch_path_length, compute_branch_lengths_of_graph
 from .trigonometric_utils import move_along_centerline, fit_bifurcation_plane, compute_inflow_angle, compute_bifurcation_angles, compute_angles_at_bifurcation, traverse_graph_and_compute_angles
-from .general_utils import merge_branch_metrics
 
 __all__ = [
     'load_nrrd_mask',
@@ -38,7 +37,6 @@ __all__ = [
     'compute_branch_diameters_of_graph',
     'compute_branch_path_length',
     'compute_branch_lengths_of_graph',
-    'merge_branch_metrics',
     'determine_origin_node_from_diameter',
     'move_along_centerline',
     'fit_bifurcation_plane',

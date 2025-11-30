@@ -106,7 +106,7 @@ def compute_inflow_angle(proximal_points, plane_normal, spacing_info):
 
 
 def compute_bifurcation_angles(proximal_points, distal_main_points, side_branch_points,
-                              plane_normal, spacing_info, return_vectors=False):
+                              plane_normal, spacing_info):
     """
     Computes the three bifurcation angles A, B, and C in the bifurcation plane.
 
@@ -123,11 +123,9 @@ def compute_bifurcation_angles(proximal_points, distal_main_points, side_branch_
         side_branch_points (list): Points along the side branch
         plane_normal (array): Normal vector to the bifurcation plane
         spacing_info (tuple): Voxel spacing in mm for each dimension
-        return_vectors (bool): If True, return direction and projection vectors for visualization
 
     Returns:
         dict: Dictionary containing angles A, B, and C in degrees
-        tuple: If return_vectors=True, also returns (3D directions, projected directions)
     """
     results = {'angle_A': None, 'angle_B': None, 'angle_C': None}
 
@@ -189,21 +187,180 @@ def compute_bifurcation_angles(proximal_points, distal_main_points, side_branch_
         angle_C_rad = np.arccos(np.clip(cos_C, -1.0, 1.0))
         results['angle_C'] = np.degrees(angle_C_rad)
 
-    if return_vectors:
-        directions_3d = {
-            'proximal': proximal_dir,
-            'distal_main': distal_main_dir,
-            'side_branch': side_branch_dir
-        }
-        projections = {
-            'proximal': proximal_proj,
-            'distal_main': distal_main_proj,
-            'side_branch': side_branch_proj
-        }
-        return results, directions_3d, projections
-
     return results
 
+def compute_bifurcation_angles_test(points_list, plane_normal, spacing_info):
+    """
+    Computes the three bifurcation angles between parent/child branches in the bifurcation plane
+    without assuming which child branch is distal or a side branch.
+
+    Following the coronary atlas paper's definitions, all angles are calculated in 2D by projecting
+    the vessel directions onto the bifurcation plane. The three angles should sum to 360 degrees.
+
+    - Angle A: between proximal main vessel and side branch
+    - Angle B: bifurcation angle between distal main vessel and side branch
+    - Angle C: between proximal and distal main vessel
+
+    Args:
+        points_list (list): A list of lists in the format [parent_pts[], child_1_pts[], child_2_pts[]]
+        plane_normal (array): Normal vector to the bifurcation plane
+        spacing_info (tuple): Voxel spacing in mm for each dimension
+
+    Returns:
+        angles (list): List of angles in degrees in the order [parent-child_1, child_1-child_2, parent-child_2]
+    """
+
+    angles = []
+    projections = []
+
+    for point_list in points_list:
+        point_array = np.array(point_list) * np.array(spacing_info)
+        if len(point_list) >= 2:
+            direction = point_array[-1] - point_array[0]
+            direction = direction / np.linalg.norm(direction)
+            projection = direction - np.dot(direction, plane_normal) * plane_normal
+            projection = projection / np.linalg.norm(projection)
+        else:
+            return angles 
+    
+    angle_indexes = [[0,1], [1,2], [0,2]]
+
+    for angle_index in angle_indexes:
+        cosine = np.dot(projections[angle_index[0]], projections[angle_index[1]])
+        angle_radians = np.arccos(np.clip(cosine, -1.0, 1.0))
+        angles.append(np.degrees(angle_radians))
+
+    return angles
+
+def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
+
+    diameter_weight = 1 - angle_weight
+    
+    labelled_angles = {'angle_A': None, 'angle_B': angles[1], 'angle_C': None}
+    child_1_parent_angle = angles[0]
+    child_2_parent_angle = angles[1]
+    child_1_diameter =edges[1][2]['average_diameter_mm_edt']
+    child_2_diameter =edges[2][2]['average_diameter_mm_edt']
+
+
+    aA = max(0.0, min(angle_max, angle_with_parent_A))
+    aB = max(0.0, min(angle_max, angle_with_parent_B))
+    angle_score_A = 1.0 - (aA / angle_max)
+    angle_score_B = 1.0 - (aB / angle_max)
+
+    # Diameter normalization across the two children
+    min_d = min(diam_A, diam_B)
+    max_d = max(diam_A, diam_B)
+    if abs(max_d - min_d) < eps:
+        diam_score_A = diam_score_B = 0.5
+    else:
+        diam_score_A = (diam_A - min_d) / (max_d - min_d)
+        diam_score_B = (diam_B - min_d) / (max_d - min_d)
+
+
+def compute_angles_at_bifurcation_test(bifurcation_node, directed_graph, spacing_info,
+                                   min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
+    """
+    Computes all bifurcation angles at a single bifurcation node following the paper's methodology.
+
+    At each depth from min_depth_mm to max_depth_mm (in step_mm increments), this function:
+    1. Collects points along each vessel up to that depth
+    2. Fits a bifurcation plane to all collected points
+    3. Calculates inflow angle and bifurcation angles A, B, C
+    4. Averages the angles over the depth range
+
+    Args:
+        bifurcation_node (tuple): The coordinate of the bifurcation point
+        directed_graph (nx.DiGraph): The directed graph with 'voxels' edge attributes
+        spacing_info (tuple): Voxel spacing in mm for each dimension
+        min_depth_mm (float): Minimum depth for averaging (default 5.0 mm)
+        max_depth_mm (float): Maximum depth for averaging (default 10.0 mm)
+        step_mm (float): Step size for depth increments (default 0.5 mm)
+
+    Returns:
+        dict: Dictionary containing averaged angles and angle measurements at each depth
+    """
+    in_edges = list(directed_graph.in_edges(bifurcation_node, data=True))
+    out_edges = list(directed_graph.out_edges(bifurcation_node, data=True))
+
+    if len(in_edges) != 1 or len(out_edges) != 2:
+        return None
+    
+    edges = in_edges + out_edges
+    edge_voxel_paths = []
+
+    for edge in edges:
+        voxels = list(edge[2]['voxels'])
+
+        if voxels[-1] == bifurcation_node:
+            voxels = list(reversed(voxels))
+        elif voxels[0] != bifurcation_node:
+            # Neither end matches - this shouldn't happen but handle gracefully
+            return None
+        edge_voxel_paths.append(voxels)
+
+    depth_measurements = []
+    depths = np.arange(min_depth_mm, max_depth_mm + step_mm, step_mm)
+
+    for depth in depths:
+        try:
+            total_points = []
+            edge_point_lists = []
+            invalid_length = False
+            for edge, edge_voxel_path in zip(edges, edge_voxel_paths):
+                points, distance = move_along_centerline(edge_voxel_path, depth, spacing_info)
+                if len(points) < 2:
+                    invalid_length = True
+                total_points += points
+                edge_point_lists.append(points)
+
+            if invalid_length:
+                continue
+
+            plane_normal, plane_point = fit_bifurcation_plane(total_points, spacing_info)
+
+            inflow_angle = compute_inflow_angle(edge_point_lists[0], plane_normal, spacing_info)
+
+            bifurcation_angles = compute_bifurcation_angles_test(edge_point_lists, plane_normal, spacing_info)
+            
+            if len(bifurcation_angles) == 0:
+                continue
+
+            depth_measurements.append({
+                'depth': depth,
+                'inflow_angle': inflow_angle,
+                'angle_A': bifurcation_angles['angle_0_1'],
+                'angle_B': bifurcation_angles['angle_1_2'],
+                'angle_C': bifurcation_angles['angle_0_2']
+            })
+
+        except Exception as e:
+            print(e)
+            continue
+
+    if len(depth_measurements) == 0:
+        return None
+
+    inflow_angles = [m['inflow_angle'] for m in depth_measurements if m['inflow_angle'] is not None]
+    angles_A = [m['angle_A'] for m in depth_measurements if m['angle_A'] is not None]
+    angles_B = [m['angle_B'] for m in depth_measurements if m['angle_B'] is not None]
+    angles_C = [m['angle_C'] for m in depth_measurements if m['angle_C'] is not None]
+
+    result = {
+        'bifurcation_node': bifurcation_node,
+        'averaged_inflow_angle': np.mean(inflow_angles) if inflow_angles else None,
+        'averaged_angle_A': np.mean(angles_A) if angles_A else None,
+        'averaged_angle_B': np.mean(angles_B) if angles_B else None,
+        'averaged_angle_C': np.mean(angles_C) if angles_C else None,
+        'std_inflow_angle': np.std(inflow_angles) if inflow_angles else None,
+        'std_angle_A': np.std(angles_A) if angles_A else None,
+        'std_angle_B': np.std(angles_B) if angles_B else None,
+        'std_angle_C': np.std(angles_C) if angles_C else None,
+        'depth_measurements': depth_measurements,
+        'num_measurements': len(depth_measurements)
+    }
+
+    return result
 
 def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info,
                                    min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):

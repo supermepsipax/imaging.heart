@@ -105,7 +105,7 @@ def compute_inflow_angle(proximal_points, plane_normal, spacing_info):
     return angle_deg
 
 
-def compute_bifurcation_angles(proximal_points, distal_main_points, side_branch_points,
+def compute_bifurcation_angles_legacy(proximal_points, distal_main_points, side_branch_points,
                               plane_normal, spacing_info):
     """
     Computes the three bifurcation angles A, B, and C in the bifurcation plane.
@@ -189,17 +189,13 @@ def compute_bifurcation_angles(proximal_points, distal_main_points, side_branch_
 
     return results
 
-def compute_bifurcation_angles_test(points_list, plane_normal, spacing_info):
+def compute_bifurcation_angles(points_list, plane_normal, spacing_info):
     """
     Computes the three bifurcation angles between parent/child branches in the bifurcation plane
     without assuming which child branch is distal or a side branch.
 
     Following the coronary atlas paper's definitions, all angles are calculated in 2D by projecting
     the vessel directions onto the bifurcation plane. The three angles should sum to 360 degrees.
-
-    - Angle A: between proximal main vessel and side branch
-    - Angle B: bifurcation angle between distal main vessel and side branch
-    - Angle C: between proximal and distal main vessel
 
     Args:
         points_list (list): A list of lists in the format [parent_pts[], child_1_pts[], child_2_pts[]]
@@ -220,9 +216,10 @@ def compute_bifurcation_angles_test(points_list, plane_normal, spacing_info):
             direction = direction / np.linalg.norm(direction)
             projection = direction - np.dot(direction, plane_normal) * plane_normal
             projection = projection / np.linalg.norm(projection)
+            projections.append(projection)
         else:
-            return angles 
-    
+            return angles
+
     angle_indexes = [[0,1], [1,2], [0,2]]
 
     for angle_index in angle_indexes:
@@ -233,32 +230,95 @@ def compute_bifurcation_angles_test(points_list, plane_normal, spacing_info):
     return angles
 
 def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
+    """
+    Determines which child branch is the distal main vessel vs side branch using a scoring system.
 
+    Scores each child branch based on:
+    - Angle with parent: angles closer to 180° (straight) score higher, 90° (perpendicular) scores lowest
+    - Diameter: larger diameters score higher
+
+    Args:
+        edges (list): List of edges in format [(node1, node2, edge_data), ...]
+                      where edges[0] is parent, edges[1] is child_1, edges[2] is child_2
+        angles (list): List of angles [parent-child_1, child_1-child_2, parent-child_2]
+        angle_weight (float): Weight for angle scoring (0-1), remainder is diameter weight
+
+    Returns:
+        dict: Labeled angles {'angle_A': parent-side, 'angle_B': child_1-child_2, 'angle_C': parent-distal}
+    """
     diameter_weight = 1 - angle_weight
-    
-    labelled_angles = {'angle_A': None, 'angle_B': angles[1], 'angle_C': None}
+    eps = 1e-6  # Small epsilon for numerical stability
+
+    # Validate input
+    if len(angles) != 3:
+        raise ValueError(f"Expected 3 angles, got {len(angles)}")
+    if len(edges) < 3:
+        raise ValueError(f"Expected at least 3 edges, got {len(edges)}")
+    if any(a is None for a in angles):
+        raise ValueError(f"Angles contain None values: {angles}")
+
     child_1_parent_angle = angles[0]
-    child_2_parent_angle = angles[1]
-    child_1_diameter =edges[1][2]['average_diameter_mm_edt']
-    child_2_diameter =edges[2][2]['average_diameter_mm_edt']
+    child_2_parent_angle = angles[2]
+    bifurcation_angle = angles[1]
 
+    # Extract diameters (try multiple possible keys)
+    edge1_data = edges[1][2]
+    edge2_data = edges[2][2]
 
-    aA = max(0.0, min(angle_max, angle_with_parent_A))
-    aB = max(0.0, min(angle_max, angle_with_parent_B))
-    angle_score_A = 1.0 - (aA / angle_max)
-    angle_score_B = 1.0 - (aB / angle_max)
-
-    # Diameter normalization across the two children
-    min_d = min(diam_A, diam_B)
-    max_d = max(diam_A, diam_B)
-    if abs(max_d - min_d) < eps:
-        diam_score_A = diam_score_B = 0.5
+    # Try different diameter keys (from different processing methods)
+    if 'mean_diameter' in edge1_data:
+        child_1_diameter = edge1_data['mean_diameter']
+        child_2_diameter = edge2_data['mean_diameter']
+    elif 'average_diameter_mm_edt' in edge1_data:
+        child_1_diameter = edge1_data['average_diameter_mm_edt']
+        child_2_diameter = edge2_data['average_diameter_mm_edt']
+    elif 'median_diameter' in edge1_data:
+        child_1_diameter = edge1_data['median_diameter']
+        child_2_diameter = edge2_data['median_diameter']
     else:
-        diam_score_A = (diam_A - min_d) / (max_d - min_d)
-        diam_score_B = (diam_B - min_d) / (max_d - min_d)
+        raise KeyError(
+            f"No diameter information found in edge data. "
+            f"Available keys: {list(edge1_data.keys())}"
+        )
+
+    # Angle scoring: distance from 90° (perpendicular)
+    # 180° (straight) → score = 1.0 (best)
+    # 90° (perpendicular) → score = 0.0 (worst)
+
+    angle_score_1 = abs(child_1_parent_angle - 90.0) / 90.0
+    angle_score_2 = abs(child_2_parent_angle - 90.0) / 90.0
+
+    # Diameter scoring: normalize between the two children
+    # Larger diameter gets higher score [0, 1]
+    min_d = min(child_1_diameter, child_2_diameter)
+    max_d = max(child_1_diameter, child_2_diameter)
+    if abs(max_d - min_d) < eps:
+        # Diameters are essentially equal
+        diam_score_1 = diam_score_2 = 0.5
+    else:
+        diam_score_1 = (child_1_diameter - min_d) / (max_d - min_d)
+        diam_score_2 = (child_2_diameter - min_d) / (max_d - min_d)
+
+    total_score_1 = angle_weight * angle_score_1 + diameter_weight * diam_score_1
+    total_score_2 = angle_weight * angle_score_2 + diameter_weight * diam_score_2
+
+    if total_score_1 >= total_score_2:
+        labelled_angles = {
+            'angle_A': child_2_parent_angle, 
+            'angle_B': bifurcation_angle,    
+            'angle_C': child_1_parent_angle  
+        }
+    else:
+        labelled_angles = {
+            'angle_A': child_1_parent_angle, 
+            'angle_B': bifurcation_angle,    
+            'angle_C': child_2_parent_angle  
+        }
+
+    return labelled_angles
 
 
-def compute_angles_at_bifurcation_test(bifurcation_node, directed_graph, spacing_info,
+def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info,
                                    min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
     """
     Computes all bifurcation angles at a single bifurcation node following the paper's methodology.
@@ -321,17 +381,17 @@ def compute_angles_at_bifurcation_test(bifurcation_node, directed_graph, spacing
 
             inflow_angle = compute_inflow_angle(edge_point_lists[0], plane_normal, spacing_info)
 
-            bifurcation_angles = compute_bifurcation_angles_test(edge_point_lists, plane_normal, spacing_info)
-            
+            bifurcation_angles = compute_bifurcation_angles(edge_point_lists, plane_normal, spacing_info)
+
             if len(bifurcation_angles) == 0:
                 continue
 
             depth_measurements.append({
                 'depth': depth,
                 'inflow_angle': inflow_angle,
-                'angle_A': bifurcation_angles['angle_0_1'],
-                'angle_B': bifurcation_angles['angle_1_2'],
-                'angle_C': bifurcation_angles['angle_0_2']
+                'angle_0_1': bifurcation_angles[0],
+                'angle_1_2': bifurcation_angles[1],
+                'angle_0_2': bifurcation_angles[2]
             })
 
         except Exception as e:
@@ -341,30 +401,71 @@ def compute_angles_at_bifurcation_test(bifurcation_node, directed_graph, spacing
     if len(depth_measurements) == 0:
         return None
 
+    # Compute averages for unlabeled angles
     inflow_angles = [m['inflow_angle'] for m in depth_measurements if m['inflow_angle'] is not None]
-    angles_A = [m['angle_A'] for m in depth_measurements if m['angle_A'] is not None]
-    angles_B = [m['angle_B'] for m in depth_measurements if m['angle_B'] is not None]
-    angles_C = [m['angle_C'] for m in depth_measurements if m['angle_C'] is not None]
+    angles_0_1 = [m['angle_0_1'] for m in depth_measurements if m['angle_0_1'] is not None]
+    angles_1_2 = [m['angle_1_2'] for m in depth_measurements if m['angle_1_2'] is not None]
+    angles_0_2 = [m['angle_0_2'] for m in depth_measurements if m['angle_0_2'] is not None]
+
+    # Create averaged angle array for labeling
+    averaged_unlabeled_angles = [
+        np.mean(angles_0_1) if angles_0_1 else None,
+        np.mean(angles_1_2) if angles_1_2 else None,
+        np.mean(angles_0_2) if angles_0_2 else None
+    ]
+
+    # Determine A, B, C labels based on averaged angles (only done once!)
+    labeled_angles = determine_child_branch_angle_designations(edges, averaged_unlabeled_angles)
+
+    # Create mapping from unlabeled indices to labels
+    # e.g., {0: 'angle_A', 1: 'angle_B', 2: 'angle_C'}
+    index_to_label = {}
+    std_mapping = {}
+
+    for label, value in labeled_angles.items():
+        if value == averaged_unlabeled_angles[0]:
+            index_to_label[0] = label
+            std_mapping[label] = np.std(angles_0_1) if angles_0_1 else None
+        elif value == averaged_unlabeled_angles[1]:
+            index_to_label[1] = label
+            std_mapping[label] = np.std(angles_1_2) if angles_1_2 else None
+        elif value == averaged_unlabeled_angles[2]:
+            index_to_label[2] = label
+            std_mapping[label] = np.std(angles_0_2) if angles_0_2 else None
+
+    # Relabel depth measurements to use A, B, C
+    relabeled_depth_measurements = []
+    for measurement in depth_measurements:
+        relabeled_measurement = {
+            'depth': measurement['depth'],
+            'inflow_angle': measurement['inflow_angle'],
+            index_to_label[0]: measurement['angle_0_1'],
+            index_to_label[1]: measurement['angle_1_2'],
+            index_to_label[2]: measurement['angle_0_2']
+        }
+        relabeled_depth_measurements.append(relabeled_measurement)
 
     result = {
         'bifurcation_node': bifurcation_node,
         'averaged_inflow_angle': np.mean(inflow_angles) if inflow_angles else None,
-        'averaged_angle_A': np.mean(angles_A) if angles_A else None,
-        'averaged_angle_B': np.mean(angles_B) if angles_B else None,
-        'averaged_angle_C': np.mean(angles_C) if angles_C else None,
+        'averaged_angle_A': labeled_angles['angle_A'],
+        'averaged_angle_B': labeled_angles['angle_B'],
+        'averaged_angle_C': labeled_angles['angle_C'],
         'std_inflow_angle': np.std(inflow_angles) if inflow_angles else None,
-        'std_angle_A': np.std(angles_A) if angles_A else None,
-        'std_angle_B': np.std(angles_B) if angles_B else None,
-        'std_angle_C': np.std(angles_C) if angles_C else None,
-        'depth_measurements': depth_measurements,
+        'std_angle_A': std_mapping['angle_A'],
+        'std_angle_B': std_mapping['angle_B'],
+        'std_angle_C': std_mapping['angle_C'],
+        'depth_measurements': relabeled_depth_measurements,
         'num_measurements': len(depth_measurements)
     }
 
     return result
 
-def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info,
+def compute_angles_at_bifurcation_legacy(bifurcation_node, directed_graph, spacing_info,
                                    min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
     """
+    LEGACY VERSION - uses manual main/side branch designation based on path length.
+
     Computes all bifurcation angles at a single bifurcation node following the paper's methodology.
 
     At each depth from min_depth_mm to max_depth_mm (in step_mm increments), this function:
@@ -455,7 +556,7 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
 
             inflow_angle = compute_inflow_angle(proximal_pts, plane_normal, spacing_info)
 
-            bifurcation_angles = compute_bifurcation_angles(
+            bifurcation_angles = compute_bifurcation_angles_legacy(
                 proximal_pts, distal_main_pts, side_branch_pts, plane_normal, spacing_info
             )
 

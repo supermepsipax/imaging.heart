@@ -113,12 +113,46 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
             largest_edge = edge
 
     if largest_edge is not None:
+        # Check if either end of the largest edge is an endpoint
         if graph.degree[largest_edge[0]] == 1:
             origin = largest_edge[0]
         elif graph.degree[largest_edge[1]] == 1:
             origin = largest_edge[1]
         else:
-            origin = None
+            # Largest edge is not connected to an endpoint
+            # Find all endpoints and pick the one with the largest average diameter
+            endpoints = [node for node in graph.nodes() if graph.degree[node] == 1]
+
+            if len(endpoints) == 0:
+                raise ValueError("No endpoints found in graph - cannot determine origin")
+
+            # Find endpoint with largest diameter on its connected edge
+            best_endpoint = None
+            best_endpoint_diameter = 0
+
+            for endpoint in endpoints:
+                # Get the single edge connected to this endpoint
+                endpoint_edges = list(graph.edges(endpoint))
+                if len(endpoint_edges) > 0:
+                    edge = endpoint_edges[0]
+                    if 'mean_diameter' in graph.edges[edge]:
+                        diameter = graph.edges[edge]['mean_diameter']
+                    elif distance_array is not None:
+                        voxel_path = graph.edges[edge]["voxels"]
+                        diameter, _ = compute_average_diameter_of_branch(distance_array, voxel_path)
+                    else:
+                        continue
+
+                    if diameter > best_endpoint_diameter:
+                        best_endpoint_diameter = diameter
+                        best_endpoint = endpoint
+
+            if best_endpoint is None:
+                # Fallback: just use the first endpoint
+                origin = endpoints[0]
+            else:
+                origin = best_endpoint
+
         return origin
     else:
         raise ValueError(

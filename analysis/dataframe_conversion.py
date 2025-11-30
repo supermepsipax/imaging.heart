@@ -66,19 +66,19 @@ def convert_graph_to_dataframes(graph,nodes_csv="nodes.csv", edges_csv="edges.cs
     edges_df.to_csv(edges_csv, index=False)
 
 
-    print("=" * 80)
-    print("NODES DATAFRAME")
-    print("=" * 80)
-    print(nodes_df)
-    print(f"\nShape: {nodes_df.shape}")
-    print(f"Columns: {list(nodes_df.columns)}")
-
-    print("\n" + "=" * 80)
-    print("EDGES DATAFRAME")
-    print("=" * 80)
-    print(edges_df)
-    print(f"\nShape: {edges_df.shape}")
-    print(f"Columns: {list(edges_df.columns)}")
-    print("=" * 80)
+    # print("=" * 80)
+    # print("NODES DATAFRAME")
+    # print("=" * 80)
+    # print(nodes_df)
+    # print(f"\nShape: {nodes_df.shape}")
+    # print(f"Columns: {list(nodes_df.columns)}")
+    #
+    # print("\n" + "=" * 80)
+    # print("EDGES DATAFRAME")
+    # print("=" * 80)
+    # print(edges_df)
+    # print(f"\nShape: {edges_df.shape}")
+    # print(f"Columns: {list(edges_df.columns)}")
+    # print("=" * 80)
 
     return nodes_df, edges_df

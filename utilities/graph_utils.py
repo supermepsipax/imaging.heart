@@ -135,6 +135,53 @@ def skeleton_to_dense_graph(binary_mask):
 
     return graph
 
+
+def skeleton_to_sparse_graph_robust(binary_mask, bifurcation_points, endpoints):
+    """
+    Builds a sparse graph using dense graph shortest paths for robust pathfinding.
+
+    This approach is more robust to close centerlines and complex topology compared
+    to the greedy pathfinding approach. It builds a dense graph first, then finds
+    shortest paths between all node pairs, keeping only direct connections (paths
+    that don't pass through other nodes).
+
+    Args:
+        binary_mask (array): A numpy binary mask representing a skeletonized structure
+        bifurcation_points (list): List of 3D coordinates in array index order (axis0, axis1, axis2)
+        endpoints (list): List of 3D coordinates in array index order (axis0, axis1, axis2)
+
+    Returns:
+        graph: A networkx graph object where edges have 'voxels' attribute containing
+               coordinate paths, with only direct connections between nodes
+    """
+    dense_graph = skeleton_to_dense_graph(binary_mask)
+
+    sparse_graph = nx.Graph()
+    nodes = set(map(tuple, np.vstack((bifurcation_points, endpoints))))
+    sparse_graph.add_nodes_from(nodes)
+
+    # Find direct connections (paths that don't pass through other nodes)
+    nodes_list = list(nodes)
+    edges_added = 0
+
+    for i, node1 in enumerate(nodes_list):
+        for node2 in nodes_list[i+1:]:
+            try:
+                path = nx.shortest_path(dense_graph, node1, node2)
+
+                # Check if path passes through any other nodes (besides endpoints)
+                intermediate_nodes = [v for v in path[1:-1] if v in nodes]
+
+                if len(intermediate_nodes) == 0:
+                    sparse_graph.add_edge(node1, node2, voxels=path)
+                    edges_added += 1
+
+            except nx.NetworkXNoPath:
+                continue
+
+    return sparse_graph
+
+
 def make_directed_graph(undirected_graph, origin_node):
 
     directed_graph = nx.DiGraph()

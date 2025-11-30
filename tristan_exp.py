@@ -12,7 +12,7 @@ import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/batch_2/Normal_2.nrrd"
+path = "data/batch_2/Normal_5.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -45,8 +45,8 @@ create_projection_view(binary_mask)
 result = process_single_artery(
     binary_mask=original_one_sided_mask,
     spacing_info=spacing_info,
-    min_depth_mm=0.0,
-    max_depth_mm=3.0,
+    min_depth_mm=2.0,
+    max_depth_mm=7.0,
     step_mm=0.5,
     output_csv=True,
     nodes_csv="nodes.csv",

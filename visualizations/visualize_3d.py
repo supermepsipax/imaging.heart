@@ -1,6 +1,36 @@
 import plotly.graph_objects as go
 from skimage import measure
 import numpy as np
+import networkx as nx
+
+
+def get_edge_hierarchy_color(edge_position_label):
+    """
+    Determines color based on edge position label for hierarchical visualization.
+
+    Args:
+        edge_position_label (str): The edge position label (e.g., "1", "12", "121", "122")
+
+    Returns:
+        str: Color name for the edge
+            - Main branch (all 1s): 'blue'
+            - Next main (1 followed by all 2s): 'orange'
+            - Other branches: 'green'
+    """
+    if not edge_position_label:
+        return 'gray'  # Default for unlabeled edges
+
+    # Check if all characters are '1' (main trunk)
+    if all(c == '1' for c in edge_position_label):
+        return 'blue'
+
+    # Check if first char is '1' and rest are all '2' (next main branch)
+    if len(edge_position_label) > 1 and edge_position_label[0] == '1' and all(c == '2' for c in edge_position_label[1:]):
+        return 'orange'
+
+    # All other branches
+    return 'green'
+
 
 def visualize_3d_graph(graph, binary_mask=None):
     """
@@ -47,41 +77,140 @@ def visualize_3d_graph(graph, binary_mask=None):
         name='Direct connection'
     )
     traces.append(straight_trace)
+
+    # Check if graph is directed and has edge_position attributes
+    is_directed = isinstance(graph, nx.DiGraph)
+    has_edge_positions = False
+    if graph.number_of_edges() > 0:
+        # Check how many edges have edge_position attribute
+        edges_with_position = sum(1 for edge in graph.edges() if 'edge_position' in graph.edges[edge])
+        total_edges = graph.number_of_edges()
+
+        # Use hierarchical coloring if any edges have position labels
+        has_edge_positions = edges_with_position > 0
+
+        if edges_with_position < total_edges:
+            print(f"[INFO] Visualization: {edges_with_position}/{total_edges} edges have 'edge_position' attribute.")
+            print(f"       Edges without labels will be shown in gray.")
+
+    # If directed and has edge positions, color by hierarchy
+    if is_directed and has_edge_positions:
+        # Group edges by color category
+        edges_by_color = {'blue': [], 'orange': [], 'green': [], 'gray': []}
+
+        for edge in graph.edges():
+            edge_data = graph.edges[edge]
+            edge_position = edge_data.get('edge_position', '')
+            color = get_edge_hierarchy_color(edge_position)
+            edges_by_color[color].append(edge)
+
+        # Create separate traces for each color category
+        color_names = {
+            'blue': 'Main trunk (all 1s)',
+            'orange': 'First major branch (1+2s)',
+            'green': 'Other branches',
+            'gray': 'Unlabeled edges'
+        }
+
+        for color, edges_list in edges_by_color.items():
+            if len(edges_list) == 0:
+                continue
+
+            path_x, path_y, path_z = [], [], []
+            for edge in edges_list:
+                voxel_path = graph.edges[edge]['voxels']
+                for voxel in voxel_path:
+                    x, y, z = voxel
+                    path_x.append(x)
+                    path_y.append(y)
+                    path_z.append(z)
+                path_x.append(None)
+                path_y.append(None)
+                path_z.append(None)
+
+            path_trace = go.Scatter3d(
+                x=path_x, y=path_y, z=path_z,
+                mode='lines',
+                line=dict(color=color, width=5),
+                hoverinfo='none',
+                name=color_names[color]
+            )
+            traces.append(path_trace)
+    else:
+        # Original behavior: single color for all edges
+        path_x, path_y, path_z = [], [], []
+        for edge in graph.edges():
+            voxel_path = graph.edges[edge]['voxels']
+            for voxel in voxel_path:
+                x, y, z = voxel
+                path_x.append(x)
+                path_y.append(y)
+                path_z.append(z)
+            path_x.append(None)
+            path_y.append(None)
+            path_z.append(None)
+
+        path_trace = go.Scatter3d(
+            x=path_x, y=path_y, z=path_z,
+            mode='lines',
+            line=dict(color='darkgreen', width=5),
+            hoverinfo='none',
+            name='Actual voxel path'
+        )
+        traces.append(path_trace)
     
-    path_x, path_y, path_z = [], [], []
-    for edge in graph.edges():
-        voxel_path = graph.edges[edge]['voxels']
-        for voxel in voxel_path:
-            x, y, z = voxel
-            path_x.append(x)
-            path_y.append(y)
-            path_z.append(z)
-        path_x.append(None)
-        path_y.append(None)
-        path_z.append(None)
-    
-    path_trace = go.Scatter3d(
-        x=path_x, y=path_y, z=path_z,
-        mode='lines',
-        line=dict(color='darkgreen', width=5),
-        hoverinfo='none',
-        name='Actual voxel path'
-    )
-    traces.append(path_trace)
-    
-    node_x = [node[0] for node in graph.nodes()]
-    node_y = [node[1] for node in graph.nodes()]
-    node_z = [node[2] for node in graph.nodes()]
-    
-    node_trace = go.Scatter3d(
-        x=node_x, y=node_y, z=node_z,
-        mode='markers',
-        marker=dict(size=8, color='darkred', symbol='diamond'),
-        text=[str(node) for node in graph.nodes()],
-        hoverinfo='text',
-        name='Nodes'
-    )
-    traces.append(node_trace)
+    # Check if directed graph to highlight origin node
+    if is_directed:
+        # Find origin node (in_degree == 0)
+        origin_nodes = [node for node in graph.nodes() if graph.in_degree(node) == 0]
+        regular_nodes = [node for node in graph.nodes() if graph.in_degree(node) > 0]
+
+        # Add origin node(s) as separate trace in blue
+        if origin_nodes:
+            origin_x = [node[0] for node in origin_nodes]
+            origin_y = [node[1] for node in origin_nodes]
+            origin_z = [node[2] for node in origin_nodes]
+
+            origin_trace = go.Scatter3d(
+                x=origin_x, y=origin_y, z=origin_z,
+                mode='markers',
+                marker=dict(size=12, color='blue', symbol='diamond'),
+                text=[f"ORIGIN: {str(node)}" for node in origin_nodes],
+                hoverinfo='text',
+                name='Origin node'
+            )
+            traces.append(origin_trace)
+
+        # Add regular nodes
+        if regular_nodes:
+            node_x = [node[0] for node in regular_nodes]
+            node_y = [node[1] for node in regular_nodes]
+            node_z = [node[2] for node in regular_nodes]
+
+            node_trace = go.Scatter3d(
+                x=node_x, y=node_y, z=node_z,
+                mode='markers',
+                marker=dict(size=8, color='darkred', symbol='diamond'),
+                text=[str(node) for node in regular_nodes],
+                hoverinfo='text',
+                name='Nodes'
+            )
+            traces.append(node_trace)
+    else:
+        # Original behavior for undirected graphs
+        node_x = [node[0] for node in graph.nodes()]
+        node_y = [node[1] for node in graph.nodes()]
+        node_z = [node[2] for node in graph.nodes()]
+
+        node_trace = go.Scatter3d(
+            x=node_x, y=node_y, z=node_z,
+            mode='markers',
+            marker=dict(size=8, color='darkred', symbol='diamond'),
+            text=[str(node) for node in graph.nodes()],
+            hoverinfo='text',
+            name='Nodes'
+        )
+        traces.append(node_trace)
     
     fig = go.Figure(data=traces)
     fig.update_layout(

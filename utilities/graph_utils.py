@@ -198,6 +198,63 @@ def make_directed_graph(undirected_graph, origin_node):
 
 
 
+def remove_bypass_edges(graph, distance_threshold=2.0):
+    """
+    Removes bypass edges that pass near bifurcation nodes without going through them.
+
+    This detects nodes with degree > 3 (indicating potential bypass paths) and removes
+    edges whose voxel paths pass within a threshold distance of these nodes without
+    actually connecting to them.
+
+    Args:
+        graph (networkx.Graph): Undirected sparse graph with 'voxels' edge attributes
+        distance_threshold (float): Maximum distance (in voxels) for a path to be
+                                   considered as passing near a node (default: 2.0)
+
+    Returns:
+        cleaned_graph: Graph with bypass edges removed
+    """
+    cleaned_graph = graph.copy()
+
+    high_degree_nodes = [node for node in cleaned_graph.nodes() if cleaned_graph.degree(node) > 3]
+
+    if len(high_degree_nodes) == 0:
+        print("      [INFO] No nodes with degree > 3 found. No bypass edges to remove.")
+        return cleaned_graph
+
+    print(f"      [INFO] Found {len(high_degree_nodes)} nodes with degree > 3")
+
+    edges_to_remove = set()
+
+    for node in high_degree_nodes:
+        for edge in list(cleaned_graph.edges()):
+            u, v = edge
+
+            if u == node or v == node:
+                continue
+
+            voxel_path = cleaned_graph.edges[edge]['voxels']
+
+            min_distance = float('inf')
+            for voxel in voxel_path:
+                distance = np.linalg.norm(np.array(voxel) - np.array(node))
+                min_distance = min(min_distance, distance)
+
+            if min_distance <= distance_threshold:
+                edges_to_remove.add(edge)
+                print(f"      --> Bypass edge detected: {edge} passes within {min_distance:.2f} voxels of node {node}")
+
+    # Remove bypass edges
+    cleaned_graph.remove_edges_from(edges_to_remove)
+
+    if len(edges_to_remove) > 0:
+        print(f"      [OK] Removed {len(edges_to_remove)} bypass edges")
+    else:
+        print(f"      [INFO] No bypass edges found")
+
+    return cleaned_graph
+
+
 def dense_graph_to_skeleton(graph, reference_mask=None):
     """
     Converts a dense graph back into a binary mask representation.

@@ -6,8 +6,8 @@ from utilities import (
     extract_endpoint_and_bifurcation_coordinates,
     skeleton_to_sparse_graph,
     skeleton_to_sparse_graph_robust,
-    remove_redundant_bifurcation_clusters,
     remove_sharp_bend_bifurcations,
+    remove_bypass_edges,
     create_distance_transform_from_mask,
     compute_branch_diameters_of_graph,
     compute_branch_lengths_of_graph,
@@ -21,7 +21,8 @@ from analysis import convert_graph_to_dataframes
 
 
 def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth_mm=5.0,
-                          step_mm=0.5, output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv"):
+                          step_mm=0.5, remove_bypass=True, bypass_threshold=2.0,
+                          output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv"):
     """
     Process a single continuous artery binary mask through the complete analysis pipeline.
 
@@ -34,6 +35,8 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
         min_depth_mm (float): Minimum depth for bifurcation angle averaging (default 1.0 mm)
         max_depth_mm (float): Maximum depth for bifurcation angle averaging (default 5.0 mm)
         step_mm (float): Step size for depth increments in angle computation (default 0.5 mm)
+        remove_bypass (bool): Whether to remove bypass edges at high-degree nodes (default True)
+        bypass_threshold (float): Distance threshold in voxels for bypass detection (default 2.0)
         output_csv (bool): Whether to output CSV files (default True)
         nodes_csv (str): Output filename for nodes CSV (default "nodes.csv")
         edges_csv (str): Output filename for edges CSV (default "edges.csv")
@@ -67,27 +70,19 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     processing_times['centerline_extraction'] = time.time() - step_start
     print(f"      [OK] Centerline extracted in {processing_times['centerline_extraction']:.3f}s")
 
-    # Step 3: Extract endpoints and bifurcation points (before processing)
+    # Step 3: Extract endpoints and bifurcation points (with redundancy removal)
     print("\n[3/9] Extracting endpoints and bifurcation points...")
     step_start = time.time()
-    endpoints, bifurcation_points = extract_endpoint_and_bifurcation_coordinates(skeleton_binary_mask)
+    endpoints, bifurcation_points = extract_endpoint_and_bifurcation_coordinates(
+        skeleton_binary_mask, remove_redundant_clusters=True
+    )
     print(f"      --> Found {len(endpoints)} endpoints and {len(bifurcation_points)} bifurcation points")
+    print(f"      --> Redundant bifurcation clusters removed (most connected point kept)")
     processing_times['endpoint_bifurcation_extraction'] = time.time() - step_start
     print(f"      [OK] Extracted in {processing_times['endpoint_bifurcation_extraction']:.3f}s")
 
-    # Step 4: Remove redundant bifurcation clusters
-    print("\n[4/9] Removing redundant bifurcation clusters...")
-    step_start = time.time()
-    initial_bifurcation_count = len(bifurcation_points)
-    bifurcation_points = remove_redundant_bifurcation_clusters(bifurcation_points)
-    removed_redundant = initial_bifurcation_count - len(bifurcation_points)
-    print(f"      --> Removed {removed_redundant} redundant bifurcations")
-    print(f"      --> {len(bifurcation_points)} bifurcations remaining")
-    processing_times['remove_redundant_bifurcations'] = time.time() - step_start
-    print(f"      [OK] Processed in {processing_times['remove_redundant_bifurcations']:.3f}s")
-
-    # Step 5: Remove sharp bend bifurcations
-    print("\n[5/9] Removing sharp bend (false) bifurcations...")
+    # Step 4: Remove sharp bend bifurcations
+    print("\n[4/9] Removing sharp bend (false) bifurcations...")
     step_start = time.time()
     initial_bifurcation_count = len(bifurcation_points)
     bifurcation_points = remove_sharp_bend_bifurcations(bifurcation_points, skeleton_binary_mask)
@@ -97,8 +92,8 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     processing_times['remove_sharp_bend_bifurcations'] = time.time() - step_start
     print(f"      [OK] Processed in {processing_times['remove_sharp_bend_bifurcations']:.3f}s")
 
-    # Step 6: Create sparse skeleton graph
-    print("\n[6/9] Constructing sparse skeleton graph from centerline...")
+    # Step 5: Create sparse skeleton graph
+    print("\n[5/8] Constructing sparse skeleton graph from centerline...")
     step_start = time.time()
     sparse_skeleton_graph = skeleton_to_sparse_graph_robust(skeleton_binary_mask, bifurcation_points, endpoints)
     print(f"      --> Graph has {sparse_skeleton_graph.number_of_nodes()} nodes")
@@ -114,8 +109,20 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     processing_times['graph_construction'] = time.time() - step_start
     print(f"      [OK] Graph constructed in {processing_times['graph_construction']:.3f}s")
 
-    # Step 7: Compute branch lengths and diameter profiles
-    print("\n[7/9] Computing branch metrics (lengths and diameter profiles)...")
+    # Optional: Remove bypass edges
+    if remove_bypass:
+        print("\n[5b/8] Removing bypass edges at high-degree nodes...")
+        step_start = time.time()
+        initial_edge_count = sparse_skeleton_graph.number_of_edges()
+        sparse_skeleton_graph = remove_bypass_edges(sparse_skeleton_graph, distance_threshold=bypass_threshold)
+        removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
+        print(f"      --> {removed_edges} edges removed")
+        print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
+        processing_times['bypass_edge_removal'] = time.time() - step_start
+        print(f"      [OK] Bypass edges processed in {processing_times['bypass_edge_removal']:.3f}s")
+
+    # Step 6: Compute branch lengths and diameter profiles
+    print("\n[6/8] Computing branch metrics (lengths and diameter profiles)...")
     step_start = time.time()
     sparse_skeleton_graph = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info)
 
@@ -141,8 +148,8 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     processing_times['branch_metrics'] = time.time() - step_start
     print(f"      [OK] Branch metrics computed in {processing_times['branch_metrics']:.3f}s")
 
-    # Step 8: Determine origin node and create directed graph
-    print("\n[8/9] Determining origin node and creating directed graph...")
+    # Step 7: Determine origin node and create directed graph
+    print("\n[7/8] Determining origin node and creating directed graph...")
     step_start = time.time()
     origin_node = determine_origin_node_from_diameter(sparse_skeleton_graph)
     print(f"      --> Origin node identified at: {origin_node}")
@@ -150,8 +157,8 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     processing_times['graph_orientation'] = time.time() - step_start
     print(f"      [OK] Directed graph created in {processing_times['graph_orientation']:.3f}s")
 
-    # Step 9: Compute bifurcation angles
-    print("\n[9/9] Computing bifurcation angles across the vascular tree...")
+    # Step 8: Compute bifurcation angles
+    print("\n[8/8] Computing bifurcation angles across the vascular tree...")
     print(f"      --> Depth range: {min_depth_mm}mm to {max_depth_mm}mm (step: {step_mm}mm)")
     step_start = time.time()
     final_graph = traverse_graph_and_compute_angles(

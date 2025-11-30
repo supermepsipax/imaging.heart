@@ -249,7 +249,6 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
     diameter_weight = 1 - angle_weight
     eps = 1e-6  # Small epsilon for numerical stability
 
-    # Validate input
     if len(angles) != 3:
         raise ValueError(f"Expected 3 angles, got {len(angles)}")
     if len(edges) < 3:
@@ -261,11 +260,9 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
     child_2_parent_angle = angles[2]
     bifurcation_angle = angles[1]
 
-    # Extract diameters (try multiple possible keys)
     edge1_data = edges[1][2]
     edge2_data = edges[2][2]
 
-    # Try different diameter keys (from different processing methods)
     if 'mean_diameter' in edge1_data:
         child_1_diameter = edge1_data['mean_diameter']
         child_2_diameter = edge2_data['mean_diameter']
@@ -293,7 +290,6 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
     min_d = min(child_1_diameter, child_2_diameter)
     max_d = max(child_1_diameter, child_2_diameter)
     if abs(max_d - min_d) < eps:
-        # Diameters are essentially equal
         diam_score_1 = diam_score_2 = 0.5
     else:
         diam_score_1 = (child_1_diameter - min_d) / (max_d - min_d)
@@ -304,18 +300,26 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
 
     if total_score_1 >= total_score_2:
         labelled_angles = {
-            'angle_A': child_2_parent_angle, 
-            'angle_B': bifurcation_angle,    
-            'angle_C': child_1_parent_angle  
+            'angle_A': child_2_parent_angle,
+            'angle_B': bifurcation_angle,
+            'angle_C': child_1_parent_angle
         }
+        distal_child_index = 1
+        side_child_index = 2
     else:
         labelled_angles = {
-            'angle_A': child_1_parent_angle, 
-            'angle_B': bifurcation_angle,    
-            'angle_C': child_2_parent_angle  
+            'angle_A': child_1_parent_angle,
+            'angle_B': bifurcation_angle,
+            'angle_C': child_2_parent_angle
         }
+        distal_child_index = 2
+        side_child_index = 1
 
-    return labelled_angles
+    return {
+        'labeled_angles': labelled_angles,
+        'distal_child_index': distal_child_index,
+        'side_child_index': side_child_index
+    }
 
 
 def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info,
@@ -362,13 +366,26 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
     depth_measurements = []
     depths = np.arange(min_depth_mm, max_depth_mm + step_mm, step_mm)
 
+    # Track which branches have been reported as too short (to avoid spam)
+    short_branches_reported = set()
+
     for depth in depths:
         try:
             total_points = []
             edge_point_lists = []
             invalid_length = False
-            for edge, edge_voxel_path in zip(edges, edge_voxel_paths):
+            for i, (edge, edge_voxel_path) in enumerate(zip(edges, edge_voxel_paths)):
                 points, distance = move_along_centerline(edge_voxel_path, depth, spacing_info)
+
+                # If branch is too short to reach requested depth, use all available voxels
+                # This allows short branches to still contribute while longer branches use depth sampling
+                if distance < depth and len(edge_voxel_path) >= 2:
+                    if i not in short_branches_reported:
+                        print(f"      [INFO] Branch at {bifurcation_node} (edge {i}) too short ({distance:.2f}mm < {depth:.2f}mm).")
+                        print(f"              Using all {len(edge_voxel_path)} available voxels for this branch.")
+                        short_branches_reported.add(i)
+                    points = edge_voxel_path
+
                 if len(points) < 2:
                     invalid_length = True
                 total_points += points
@@ -399,23 +416,25 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
             continue
 
     if len(depth_measurements) == 0:
+        print(f"      [ERROR] No valid angle measurements at {bifurcation_node}.")
+        print(f"              All branches have < 2 voxels. Skipping this bifurcation.")
         return None
 
-    # Compute averages for unlabeled angles
     inflow_angles = [m['inflow_angle'] for m in depth_measurements if m['inflow_angle'] is not None]
     angles_0_1 = [m['angle_0_1'] for m in depth_measurements if m['angle_0_1'] is not None]
     angles_1_2 = [m['angle_1_2'] for m in depth_measurements if m['angle_1_2'] is not None]
     angles_0_2 = [m['angle_0_2'] for m in depth_measurements if m['angle_0_2'] is not None]
 
-    # Create averaged angle array for labeling
     averaged_unlabeled_angles = [
         np.mean(angles_0_1) if angles_0_1 else None,
         np.mean(angles_1_2) if angles_1_2 else None,
         np.mean(angles_0_2) if angles_0_2 else None
     ]
 
-    # Determine A, B, C labels based on averaged angles (only done once!)
-    labeled_angles = determine_child_branch_angle_designations(edges, averaged_unlabeled_angles)
+    designation_result = determine_child_branch_angle_designations(edges, averaged_unlabeled_angles)
+    labeled_angles = designation_result['labeled_angles']
+    distal_child_index = designation_result['distal_child_index']
+    side_child_index = designation_result['side_child_index']
 
     # Create mapping from unlabeled indices to labels
     # e.g., {0: 'angle_A', 1: 'angle_B', 2: 'angle_C'}
@@ -433,7 +452,6 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
             index_to_label[2] = label
             std_mapping[label] = np.std(angles_0_2) if angles_0_2 else None
 
-    # Relabel depth measurements to use A, B, C
     relabeled_depth_measurements = []
     for measurement in depth_measurements:
         relabeled_measurement = {
@@ -456,7 +474,9 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
         'std_angle_B': std_mapping['angle_B'],
         'std_angle_C': std_mapping['angle_C'],
         'depth_measurements': relabeled_depth_measurements,
-        'num_measurements': len(depth_measurements)
+        'num_measurements': len(depth_measurements),
+        'distal_child_index': distal_child_index,
+        'side_child_index': side_child_index
     }
 
     return result
@@ -600,11 +620,10 @@ def compute_angles_at_bifurcation_legacy(bifurcation_node, directed_graph, spaci
 def traverse_graph_and_compute_angles(directed_graph, spacing_info,
                                       min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
     """
-    Traverses the entire directed graph and computes bifurcation angles at all bifurcation points.
+    Traverses the directed graph from origin, computes bifurcation angles, and labels edges.
 
-    This is the main function that processes a complete vascular network graph,
-    identifying bifurcation nodes (nodes with 1 in-edge and 2 out-edges) and
-    computing all relevant angles following the paper's methodology.
+    Performs BFS traversal from the origin node (in_degree == 0), computing angles at
+    bifurcations and assigning hierarchical edge labels (1, 11, 12, 111, 112, 122, 123, etc.).
 
     Args:
         directed_graph (nx.DiGraph): The directed graph with 'voxels' edge attributes
@@ -614,18 +633,43 @@ def traverse_graph_and_compute_angles(directed_graph, spacing_info,
         step_mm (float): Step size for depth increments (default 0.5 mm)
 
     Returns:
-        list: List of dictionaries containing angle measurements for each bifurcation
+        nx.DiGraph: Updated graph with angle data in nodes and 'edge_position' labels in edges
     """
-    results = []
     updated_graph = nx.DiGraph(directed_graph)
-    
 
-    for node in updated_graph.nodes():
+    # Find origin node (in_degree == 0)
+    origin_nodes = [n for n in updated_graph.nodes() if updated_graph.in_degree(n) == 0]
+    if not origin_nodes:
+        raise ValueError("No origin node found (no node with in_degree == 0)")
+    origin_node = origin_nodes[0]
 
+    # BFS traversal with edge labeling
+    visited = set()
+    queue = [(origin_node, "")]  # (node, parent_edge_label)
+
+    while queue:
+        node, parent_label = queue.pop(0)
+
+        if node in visited:
+            continue
+        visited.add(node)
+
+        out_edges = list(updated_graph.out_edges(node, data=True))
+        out_degree = len(out_edges)
         in_degree = updated_graph.in_degree(node)
-        out_degree = updated_graph.out_degree(node)
 
-        if in_degree == 1 and out_degree == 2:
+        if out_degree == 1:
+            edge = out_edges[0]
+            if parent_label == "":
+                label = "1" 
+            else:
+                last_digit = int(parent_label[-1])
+                label = parent_label + ("1" if last_digit == 1 else str(last_digit))
+
+            updated_graph.edges[(edge[0], edge[1])]['edge_position'] = label
+            queue.append((edge[1], label))
+
+        elif out_degree == 2 and in_degree == 1:
             angle_data = compute_angles_at_bifurcation(
                 node, updated_graph, spacing_info,
                 min_depth_mm, max_depth_mm, step_mm
@@ -633,7 +677,35 @@ def traverse_graph_and_compute_angles(directed_graph, spacing_info,
 
             if angle_data is not None:
                 for key, value in angle_data.items():
-                    updated_graph.nodes[node][key] = value
-                results.append(angle_data)
+                    if key not in ['distal_child_index', 'side_child_index']:
+                        updated_graph.nodes[node][key] = value
+
+                distal_idx = angle_data.get('distal_child_index', 1)
+
+                # edges are ordered, index 1 or 2 refers to position in out_edges
+                if distal_idx == 1:
+                    distal_edge = out_edges[0]
+                    side_edge = out_edges[1]
+                else:
+                    distal_edge = out_edges[1]
+                    side_edge = out_edges[0]
+
+                if parent_label == "":
+                    distal_label = "11"
+                    side_label = "12"
+                else:
+                    last_digit = int(parent_label[-1])
+                    if last_digit == 1:
+                        distal_label = parent_label + "1"
+                        side_label = parent_label + "2"
+                    else:
+                        distal_label = parent_label + str(last_digit)
+                        side_label = parent_label + str(last_digit + 1)
+
+                updated_graph.edges[(distal_edge[0], distal_edge[1])]['edge_position'] = distal_label
+                updated_graph.edges[(side_edge[0], side_edge[1])]['edge_position'] = side_label
+
+                queue.append((distal_edge[1], distal_label))
+                queue.append((side_edge[1], side_label))
 
     return updated_graph

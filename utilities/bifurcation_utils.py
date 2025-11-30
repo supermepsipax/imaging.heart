@@ -4,7 +4,7 @@ import networkx as nx
 from .graph_utils import skeleton_to_dense_graph
 
 
-def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask):     
+def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask, remove_redundant_clusters=False):
     """
     Takes the single voxel representation of the original binary mask and finds the
     bifurcation coordinates.
@@ -19,7 +19,10 @@ def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask):
     ENDPOINT => skeletonized_binary_mask[x,y,z] == 1 & convolved_mask[x,y,z] == 2
     BIFURCATION => skeletonized_binary_mask[x,y,z] == 1 && convolved_mask[x,y,z] >= 4
 
-    Args: skeletonized_binary_mask (array): A single voxel width binary mask 
+    Args:
+        skeletonized_binary_mask (array): A single voxel width binary mask
+        remove_redundant_clusters (bool): If True, removes redundant bifurcation clusters
+                                         by selecting the most connected point in each cluster
 
     Returns:
         endpoint_coordinates (list): A list of coordinates corresponding to endpoint locations
@@ -34,10 +37,15 @@ def extract_endpoint_and_bifurcation_coordinates(skeletonized_binary_mask):
     endpoint_coordinates = np.argwhere(combined_mask == 2)
     bifurcation_coordinates = np.argwhere(combined_mask >= 4)
 
+    if remove_redundant_clusters:
+        bifurcation_coordinates = remove_redundant_bifurcation_clusters(
+            bifurcation_coordinates, combined_mask
+        )
+
     return endpoint_coordinates, bifurcation_coordinates
 
 
-def remove_redundant_bifurcation_clusters(bifurcation_coordinates):
+def remove_redundant_bifurcation_clusters(bifurcation_coordinates, combined_mask=None):
     """
     Removes redundant bifurcation points from clusters of 3 or more mutually touching points.
 
@@ -46,11 +54,17 @@ def remove_redundant_bifurcation_clusters(bifurcation_coordinates):
     junction that has been over-detected. This function identifies such clusters of 3+
     mutually touching bifurcations and keeps only one representative point from each cluster.
 
+    If a combined_mask is provided (skeleton * convolved), the most connected bifurcation
+    point (highest connectivity value) is chosen as the representative. This helps prevent
+    bypass paths in robust graph construction.
+
     Two legitimate bifurcation points that are 1 voxel apart are preserved (e.g., branches
     on opposite sides of a vessel).
 
     Args:
         bifurcation_coordinates (array): Array of 3D bifurcation point coordinates
+        combined_mask (array, optional): Combined mask with connectivity values for selecting
+                                        the most connected representative
 
     Returns:
         filtered_bifurcations: Array of bifurcation coordinates with redundant clusters removed
@@ -74,10 +88,22 @@ def remove_redundant_bifurcation_clusters(bifurcation_coordinates):
 
     components = list(nx.connected_components(touch_graph))
 
+    # Get connectivity values if mask provided
+    connectivity_values = None
+    if combined_mask is not None:
+        connectivity_values = np.array([combined_mask[tuple(coord)] for coord in bifurcations])
+
     indices_to_keep = []
     for component in components:
         if len(component) >= 3:
-            representative = min(component)
+            if connectivity_values is not None:
+                # Choose bifurcation with highest connectivity (most connected)
+                component_list = list(component)
+                component_connectivity = [connectivity_values[i] for i in component_list]
+                representative = component_list[np.argmax(component_connectivity)]
+            else:
+                # Fallback to min if no mask provided (backward compatibility)
+                representative = min(component)
             indices_to_keep.append(representative)
         else:
             indices_to_keep.extend(component)

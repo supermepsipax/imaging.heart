@@ -1,5 +1,7 @@
+
 from utilities import (
     load_nrrd_mask,
+    ensure_continuous_body,
     extract_centerline_skimage,
     extract_endpoint_and_bifurcation_coordinates,
     skeleton_to_sparse_graph,
@@ -9,12 +11,15 @@ from utilities import (
     remove_redundant_bifurcation_clusters,
     remove_sharp_bend_bifurcations,
     sort_labelled_bodies_by_size,
+    resample_to_isotropic,
     create_distance_transform_from_mask,
     compute_branch_diameters_of_graph,
     compute_branch_lengths_of_graph,
-    #merge_branch_metrics,
+    # merge_branch_metrics,
     make_directed_graph,
     determine_origin_node_from_diameter,
+    diameter_profile,
+    summarize_profile,
     traverse_graph_and_compute_angles,
     compute_angles_at_bifurcation,
 
@@ -25,7 +30,7 @@ import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/COURSEDATA/ArkivSEG/Normal_5.nrrd"
+path = r"CourseData\CourseData\Normal_2.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -33,23 +38,20 @@ binary_mask, header = load_nrrd_mask(path, verbose=True)
 # to actual units
 spacing_info = tuple(np.diag(header['space directions']))
 
-# Upsamples the voxel spacing so that spacing is the same for all axes
 binary_mask, spacing_info = resample_to_isotropic(binary_mask, spacing_info)
-
-
 # So far the preprocessings can be an optional upsample and a gaussian filter for smoothing.
 binary_mask = preprocess_binary_mask(binary_mask, upsample_factor=1)
 
-# This function will check the mask to see if it is one continuous body, a boolean flag
-# indicates its continuous while the labelled_bodies array is an array of the same shape
-# as binary_mask, but each unique continuous body has a unique label, ie 0 = background, 1 = body 1, 2 = body 2 etc..
-is_continuous, labelled_bodies = ensure_continuous_body(binary_mask)
+# This function will check the mask to see if it is one continous body, a boolean flag
+# indicates its continous while the labelled_bodies array is an array of the same shape
+# as binary_mask, but each unique continous body has a unique label, ie 0 = background, 1 = body 1, 2 = body 2 etc..
+is_continous, labelled_bodies = ensure_continuous_body(binary_mask)
 
-if is_continuous:
-    print("is continuous")
+if is_continous:
+    print("is continous")
     original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
 else:
-    print("it ain't continuous")
+    print("it ain't continous")
     sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
     original_one_sided_mask = sorted_bodies[1]
     # original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
@@ -66,12 +68,12 @@ skeleton_binary_mask = extract_centerline_skimage(original_one_sided_mask)
 
 skeleton_binary_mask_no_processing = skeleton_binary_mask
 
-# is_continuous, labelled_bodies = ensure_continuous_body(centerline_binary_mask)
+# is_continous, labelled_bodies = ensure_continous_body(centerline_binary_mask)
 #
-# if is_continuous:
-#     print("is continuous")
+# if is_continous:
+#     print("is continous")
 # else:
-#     print("it ain't continuous")
+#     print("it ain't continous")
 #     print(np.unique(labelled_bodies))
 
 # create_projection_view(centerline_binary_mask)
@@ -93,13 +95,36 @@ sparse_skeleton_graph = skeleton_to_sparse_graph(skeleton_binary_mask, bifurcati
 print(f'Unprocessed Skeleton has {unprocessed_sparse_skeleton_graph.number_of_nodes()} nodes and {unprocessed_sparse_skeleton_graph.number_of_edges()} edges')
 print(f'Processed Skeleton has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges')
 
-sparse_skeleton_graph = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
+# sparse_skeleton_graph = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
 sparse_skeleton_graph = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info )
+
+for edge in sparse_skeleton_graph.edges:
+    # gives the centerline voxel coordinates for one branch of the skeleton
+    voxels = sparse_skeleton_graph.edges[edge]['voxels']
+    profile = diameter_profile(binary_mask, voxels)
+    stats = summarize_profile(profile)
+
+    sparse_skeleton_graph.edges[edge]['diameter_profile'] = profile
+    sparse_skeleton_graph.edges[edge].update(stats)
+
+lengths = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info)
+diameters = {
+    edge: {
+        'mean_diameter': sparse_skeleton_graph.edges[edge]['mean_diameter'],
+        'median_diameter': sparse_skeleton_graph.edges[edge]['median_diameter'],
+        'std_diameter': sparse_skeleton_graph.edges[edge]['std_diameter'],
+        'min_diameter': sparse_skeleton_graph.edges[edge]['min_diameter'],
+        'max_diameter': sparse_skeleton_graph.edges[edge]['max_diameter'],
+        'slope': sparse_skeleton_graph.edges[edge]['slope'],
+        'path_length_mm': lengths.edges[edge]['path_length_mm'],
+        'direct_length_mm': lengths.edges[edge]['direct_length_mm'],
+    }
+    for edge in sparse_skeleton_graph.edges
+}
 
 origin_node = determine_origin_node_from_diameter(sparse_skeleton_graph)
 
 directed_skeleton_graph = make_directed_graph(sparse_skeleton_graph, origin_node)
-
 
 # diameters = compute_branch_diameters_of_graph(directed_skeleton_graph, distance_array)
 # lengths = compute_branch_lengths_of_graph(directed_skeleton_graph, spacing_info )
@@ -121,5 +146,5 @@ final_graph = traverse_graph_and_compute_angles(directed_skeleton_graph, spacing
 
 
 
-convert_graph_to_dataframes(final_graph)
+convert_graph_to_dataframes(final_graph,nodes_csv="nodes.csv", edges_csv="edges.csv")
 visualize_3d_graph(final_graph, original_one_sided_mask)

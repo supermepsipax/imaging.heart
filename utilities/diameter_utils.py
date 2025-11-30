@@ -1,7 +1,7 @@
 import numpy as np
+import networkx as nx
 from scipy import ndimage
-from scipy.ndimage import distance_transform_edt
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import distance_transform_edt, map_coordinates
 
 def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
@@ -21,9 +21,10 @@ def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
 
     if space_information:
-        return ndimage.distance_transform_edt(binary_mask, sampling=space_information) 
+        return ndimage.distance_transform_edt(binary_mask, sampling=space_information)
     else:
         return ndimage.distance_transform_edt(binary_mask)
+
 
 def compute_average_diameter_of_branch(distance_array, branch_coordinates):
     """
@@ -56,6 +57,7 @@ def compute_average_diameter_of_branch(distance_array, branch_coordinates):
 
     return mean_diameter, median_diameter
 
+
 def compute_branch_diameters_of_graph(graph, distance_array):
     """
     Computes average diameters for all branches in a vessel graph.
@@ -70,20 +72,59 @@ def compute_branch_diameters_of_graph(graph, distance_array):
         distance_array (array): 3D distance transform array where values represent radii
 
     Returns:
-        branch_diameters: Dictionary mapping branch identifiers (e.g., 'branch_0', 'branch_1') to their average + median diameters
+        updated_graph (networkx.Graph): A new graph object with diameter information encoded into edge data
+                                        edge_data['average_diameter_mm_edt'] => avg diameter using edt distance transform
+                                        edge_data['median_diameter_mm_edt'] => median diameter using edt distance transform
     """
-    branch_diameters = {}
+    if graph.is_directed():
+        updated_graph = nx.DiGraph(graph)
+    else:
+        updated_graph = nx.Graph(graph)
 
-    for index, edge in enumerate(list(graph.edges())):
-        edge_info = {'edge': edge}
-        voxel_path = graph.edges[edge]['voxels']
-        average_diameter, median_diameter = compute_average_diameter_of_branch(distance_array, voxel_path)
-        edge_info['average_diameter'] = average_diameter
-        edge_info['median_diameter'] = median_diameter
-        branch_diameters[f'branch_{index}'] = edge_info
+    for edge in list(updated_graph.edges()):
+        voxel_path = updated_graph.edges[edge]["voxels"]
+        average_diameter, median_diameter = compute_average_diameter_of_branch(
+            distance_array, voxel_path
+        )
+        updated_graph.edges[edge]["average_diameter_mm_edt"] = average_diameter
+        updated_graph.edges[edge]["median_diameter_mm_edt"] = median_diameter
 
-    return branch_diameters
+    return updated_graph
 
+
+def determine_origin_node_from_diameter(graph, distance_array = None):
+    largest_diameter = 0
+    largest_edge = None
+
+    for edge in list(graph.edges()):
+        if 'mean_diameter' in graph.edges[edge]:
+            average_diameter = graph.edges[edge]['mean_diameter']
+            median_diameter = graph.edges[edge]['median_diameter']
+        elif distance_array is not None:
+            voxel_path = graph.edges[edge]["voxels"]
+            average_diameter, median_diameter = compute_average_diameter_of_branch(distance_array, voxel_path)
+        else:
+            raise ValueError(
+                "Unable to determine branch diameter without existing diameter information or distance array"
+            )
+
+        if average_diameter > largest_diameter:
+            largest_diameter = average_diameter
+            largest_edge = edge
+
+    if largest_edge is not None:
+        if graph.degree[largest_edge[0]] == 1:
+            origin = largest_edge[0]
+        elif graph.degree[largest_edge[1]] == 1:
+            origin = largest_edge[1]
+        else:
+            origin = None
+        return origin
+    else:
+        raise ValueError(
+            "Unable to determine origin node from graph"
+        )
+    
 def local_diameter(mask, center, tangent):
     slice_mask = extract_plane(mask, center, tangent)  # pass both center + normal
     dist_map = distance_transform_edt(slice_mask)
@@ -141,9 +182,3 @@ def extract_plane(mask, center, normal, size=20, resolution=1.0):
     # map to mask coordinates
     slice_mask = map_coordinates(mask, [coords[0], coords[1], coords[2]], order=0, mode='nearest')
     return slice_mask
-
-
-
-
-
-

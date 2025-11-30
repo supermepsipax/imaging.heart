@@ -43,7 +43,7 @@ def skeleton_to_sparse_graph(binary_mask, bifurcation_points, endpoints):
     them as nodes in the created graph. Then paths are traced outwardly from nodes
     via connected voxels to find and create the edges between nodes. The exact voxel
     path for each edge is logged and stored as edge attribute 'voxels'. Ideally this
-    should be done on a mask that is known to be a single continuous body.
+    should be done on a mask that is known to be a single continous body.
 
     Args:
         binary_mask (array): A numpy binary mask
@@ -181,5 +181,3 @@ def dense_graph_to_skeleton(graph, reference_mask=None):
         binary_mask[node_coordinate] = 1
 
     return binary_mask
-
-

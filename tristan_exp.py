@@ -12,7 +12,7 @@ import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/batch_2/Normal_5.nrrd"
+path = "data/batch_2/Normal_2.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -36,7 +36,7 @@ if is_continous:
 else:
     print("it ain't continous")
     sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
-    original_one_sided_mask = sorted_bodies[0]
+    original_one_sided_mask = sorted_bodies[1]
     # original_one_sided_mask = (labelled_bodies == 1).astype(np.uint8)
 
 create_projection_view(binary_mask)

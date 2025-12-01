@@ -9,7 +9,7 @@ This package provides utility functions for:
 - Bifurcation angle computation and vessel geometry analysis
 """
 
-from .input_output import load_nrrd_mask
+from .input_output import load_nrrd_mask, load_config
 from .centerline_utils import ensure_continuous_body, extract_centerline_skimage
 from .bifurcation_utils import extract_endpoint_and_bifurcation_coordinates, remove_redundant_bifurcation_clusters, remove_sharp_bend_bifurcations
 from .graph_utils import skeleton_to_sparse_graph, skeleton_to_sparse_graph_robust, find_connected_voxels, skeleton_to_dense_graph, dense_graph_to_skeleton, make_directed_graph, remove_bypass_edges 
@@ -20,6 +20,7 @@ from .trigonometric_utils import move_along_centerline, fit_bifurcation_plane, c
 
 __all__ = [
     'load_nrrd_mask',
+    'load_config',
     'ensure_continuous_body',
     'extract_centerline_skimage',
     'extract_endpoint_and_bifurcation_coordinates',

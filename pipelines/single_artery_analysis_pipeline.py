@@ -16,13 +16,15 @@ from utilities import (
     diameter_profile,
     summarize_profile,
     traverse_graph_and_compute_angles,
+    load_config,
 )
 from analysis import convert_graph_to_dataframes
 
 
-def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth_mm=5.0,
-                          step_mm=0.5, remove_bypass=True, bypass_threshold=2.0,
-                          output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv"):
+def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_depth_mm=None,
+                          step_mm=None, remove_bypass=None, bypass_threshold=None,
+                          output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv",
+                          config=None, config_path=None):
     """
     Process a single continuous artery binary mask through the complete analysis pipeline.
 
@@ -32,14 +34,16 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
     Args:
         binary_mask (ndarray): Binary 3D mask of a single continuous artery (1 = vessel, 0 = background)
         spacing_info (tuple): Voxel spacing in mm for each dimension (z, y, x)
-        min_depth_mm (float): Minimum depth for bifurcation angle averaging (default 1.0 mm)
-        max_depth_mm (float): Maximum depth for bifurcation angle averaging (default 5.0 mm)
-        step_mm (float): Step size for depth increments in angle computation (default 0.5 mm)
-        remove_bypass (bool): Whether to remove bypass edges at high-degree nodes (default True)
-        bypass_threshold (float): Distance threshold in voxels for bypass detection (default 2.0)
+        min_depth_mm (float, optional): Minimum depth for bifurcation angle averaging (default 1.0 mm)
+        max_depth_mm (float, optional): Maximum depth for bifurcation angle averaging (default 5.0 mm)
+        step_mm (float, optional): Step size for depth increments in angle computation (default 0.5 mm)
+        remove_bypass (bool, optional): Whether to remove bypass edges at high-degree nodes (default True)
+        bypass_threshold (float, optional): Distance threshold in voxels for bypass detection (default 2.0)
         output_csv (bool): Whether to output CSV files (default True)
         nodes_csv (str): Output filename for nodes CSV (default "nodes.csv")
         edges_csv (str): Output filename for edges CSV (default "edges.csv")
+        config (dict, optional): Configuration dictionary with pipeline parameters
+        config_path (str, optional): Path to JSON config file (if config not provided directly)
 
     Returns:
         dict: Dictionary containing:
@@ -48,6 +52,35 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=1.0, max_depth
             - 'processing_times': Dict of processing times for each step
             - 'total_time': Total processing time in seconds
     """
+
+    # Load config if config_path is provided and config is not
+    if config is None and config_path is not None:
+        config = load_config(config_path)
+
+    # Apply config values, preferring explicit parameters over config
+    if config is not None:
+        if min_depth_mm is None:
+            min_depth_mm = config.get('min_depth_mm', 1.0)
+        if max_depth_mm is None:
+            max_depth_mm = config.get('max_depth_mm', 5.0)
+        if step_mm is None:
+            step_mm = config.get('step_mm', 0.5)
+        if remove_bypass is None:
+            remove_bypass = config.get('remove_bypass', True)
+        if bypass_threshold is None:
+            bypass_threshold = config.get('bypass_threshold', 2.0)
+
+    # Set defaults if still None
+    if min_depth_mm is None:
+        min_depth_mm = 1.0
+    if max_depth_mm is None:
+        max_depth_mm = 5.0
+    if step_mm is None:
+        step_mm = 0.5
+    if remove_bypass is None:
+        remove_bypass = True
+    if bypass_threshold is None:
+        bypass_threshold = 2.0
 
     start_time = time.time()
     processing_times = {}

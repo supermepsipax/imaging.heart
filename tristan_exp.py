@@ -12,7 +12,7 @@ import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/batch_2/Normal_2.nrrd"
+path = "data/batch_2/Normal_11.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -55,6 +55,7 @@ result = process_single_artery(
 
 # Extract the final graph from the result
 final_graph = result['final_graph']
+sparse_graph = result['sparse_graph']
 
 # Visualize the results
 visualize_3d_graph(final_graph, original_one_sided_mask)

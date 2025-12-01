@@ -10,6 +10,7 @@ from utilities import (
     remove_bypass_edges,
     create_distance_transform_from_mask,
     compute_branch_diameters_of_graph,
+    compute_branch_diameters_of_graph_slicing,
     compute_branch_lengths_of_graph,
     make_directed_graph,
     determine_origin_node_from_diameter,
@@ -147,7 +148,11 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         print("\n[5b/8] Removing bypass edges at high-degree nodes...")
         step_start = time.time()
         initial_edge_count = sparse_skeleton_graph.number_of_edges()
-        sparse_skeleton_graph = remove_bypass_edges(sparse_skeleton_graph, distance_threshold=bypass_threshold)
+        sparse_skeleton_graph = remove_bypass_edges(
+            sparse_skeleton_graph,
+            distance_threshold=bypass_threshold,
+            endpoints=endpoints
+        )
         removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
         print(f"      --> {removed_edges} edges removed")
         print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
@@ -165,18 +170,19 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
 
     # Method 2: Plane-based diameter (new method using perpendicular slices)
     print("      --> Computing plane-based diameter profiles...")
-    edge_count = 0
-    for edge in sparse_skeleton_graph.edges:
-        voxels = sparse_skeleton_graph.edges[edge]['voxels']
-        profile = diameter_profile(binary_mask, voxels)
-        stats = summarize_profile(profile)
-
-        sparse_skeleton_graph.edges[edge]['diameter_profile'] = profile
-        sparse_skeleton_graph.edges[edge].update(stats)
-        edge_count += 1
-
-    print(f"      --> Computed diameters using both methods for {edge_count} branches")
-    print(f"          - EDT method: average_diameter_mm_edt, median_diameter_mm_edt")
+    sparse_skeleton_graph = compute_branch_diameters_of_graph_slicing(sparse_skeleton_graph, binary_mask, spacing_info, slice_size=20, resolution=1.0)
+    # edge_count = 0
+    # for edge in sparse_skeleton_graph.edges:
+    #     voxels = sparse_skeleton_graph.edges[edge]['voxels']
+    #     profile = diameter_profile(binary_mask, voxels)
+    #     stats = summarize_profile(profile)
+    #
+    #     sparse_skeleton_graph.edges[edge]['diameter_profile'] = profile
+    #     sparse_skeleton_graph.edges[edge].update(stats)
+    #     edge_count += 1
+    #
+    # print(f"      --> Computed diameters using both methods for {edge_count} branches")
+    print(f"          - EDT method: mean_diameter_edt, median_diameter_edt")
     print(f"          - Plane method: mean_diameter, median_diameter, min/max/std_diameter")
     processing_times['branch_metrics'] = time.time() - step_start
     print(f"      [OK] Branch metrics computed in {processing_times['branch_metrics']:.3f}s")

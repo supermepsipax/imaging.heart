@@ -198,33 +198,52 @@ def make_directed_graph(undirected_graph, origin_node):
 
 
 
-def remove_bypass_edges(graph, distance_threshold=2.0):
+def remove_bypass_edges(graph, distance_threshold=2.0, endpoints=None):
     """
-    Removes bypass edges that pass near bifurcation nodes without going through them.
+    Removes bypass edges that pass near bifurcation nodes without going through them,
+    and removes direct connections between endpoints that shouldn't exist.
 
-    This detects nodes with degree > 3 (indicating potential bypass paths) and removes
-    edges whose voxel paths pass within a threshold distance of these nodes without
-    actually connecting to them.
+    This function performs two types of bypass detection:
+    1. Detects edges that pass within threshold distance of bifurcation nodes (degree >= 3)
+    2. Detects endpoints with degree > 1 and removes false edges connecting endpoints
 
     Args:
         graph (networkx.Graph): Undirected sparse graph with 'voxels' edge attributes
         distance_threshold (float): Maximum distance (in voxels) for a path to be
                                    considered as passing near a node (default: 2.0)
+        endpoints (list, optional): List of endpoint coordinates to check for false connections
 
     Returns:
         cleaned_graph: Graph with bypass edges removed
     """
     cleaned_graph = graph.copy()
-
-    high_degree_nodes = [node for node in cleaned_graph.nodes() if cleaned_graph.degree(node) > 3]
-
-    if len(high_degree_nodes) == 0:
-        print("      [INFO] No nodes with degree > 3 found. No bypass edges to remove.")
-        return cleaned_graph
-
-    print(f"      [INFO] Found {len(high_degree_nodes)} nodes with degree > 3")
-
     edges_to_remove = set()
+
+    # Check 1: Remove direct connections between endpoints (endpoints should have degree 1)
+    if endpoints is not None:
+        endpoint_set = set(map(tuple, endpoints))
+
+        for endpoint in endpoint_set:
+            if endpoint not in cleaned_graph.nodes():
+                continue
+
+            if cleaned_graph.degree(endpoint) == 2:
+                # Endpoint has degree 2 - one connection is false
+                neighbors = list(cleaned_graph.neighbors(endpoint))
+
+                # Check which neighbor is also an endpoint
+                for neighbor in neighbors:
+                    if neighbor in endpoint_set:
+                        # Found direct connection between two endpoints - this is a bypass
+                        edge = tuple(sorted([endpoint, neighbor]))
+                        edges_to_remove.add(edge)
+                        print(f"      --> Bypass edge detected: {endpoint} <-> {neighbor} (direct endpoint connection)")
+
+    # Check 2: Remove edges that pass near bifurcation nodes
+    high_degree_nodes = [node for node in cleaned_graph.nodes() if cleaned_graph.degree(node) >= 3]
+
+    if len(high_degree_nodes) > 0:
+        print(f"      [INFO] Found {len(high_degree_nodes)} nodes with degree >= 3")
 
     for node in high_degree_nodes:
         for edge in list(cleaned_graph.edges()):
@@ -244,7 +263,7 @@ def remove_bypass_edges(graph, distance_threshold=2.0):
                 edges_to_remove.add(edge)
                 print(f"      --> Bypass edge detected: {edge} passes within {min_distance:.2f} voxels of node {node}")
 
-    # Remove bypass edges
+    # Remove all detected bypass edges
     cleaned_graph.remove_edges_from(edges_to_remove)
 
     if len(edges_to_remove) > 0:

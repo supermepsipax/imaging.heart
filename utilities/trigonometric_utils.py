@@ -263,15 +263,12 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
     edge1_data = edges[1][2]
     edge2_data = edges[2][2]
 
-    if 'mean_diameter' in edge1_data:
-        child_1_diameter = edge1_data['mean_diameter']
-        child_2_diameter = edge2_data['mean_diameter']
-    elif 'average_diameter_mm_edt' in edge1_data:
-        child_1_diameter = edge1_data['average_diameter_mm_edt']
-        child_2_diameter = edge2_data['average_diameter_mm_edt']
-    elif 'median_diameter' in edge1_data:
-        child_1_diameter = edge1_data['median_diameter']
-        child_2_diameter = edge2_data['median_diameter']
+    if 'mean_diameter_slicing' in edge1_data:
+        child_1_diameter = edge1_data['mean_diameter_slicing']
+        child_2_diameter = edge2_data['mean_diameter_slicing']
+    elif 'mean_diameter_edt' in edge1_data:
+        child_1_diameter = edge1_data['mean_diameter_edt']
+        child_2_diameter = edge2_data['mean_diameter_edt']
     else:
         raise KeyError(
             f"No diameter information found in edge data. "

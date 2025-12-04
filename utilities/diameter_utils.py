@@ -2,7 +2,7 @@ import numpy as np
 import networkx as nx
 from scipy import ndimage
 from scipy.ndimage import distance_transform_edt, map_coordinates
-
+from skimage import measure
 def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
     Computes the Euclidean distance transform of a binary mask.
@@ -247,21 +247,16 @@ def compute_diameter_at_voxel(binary_mask, voxel, normal_vector, spacing_info, s
     voxel = np.array(voxel)
 
     slice_mask = extract_plane(binary_mask, voxel, normal_vector, size=slice_size, resolution=resolution)
-
-    # TODO: Probably should check if spacing_info is isotropic and handle accordingly
-    # Compute distance transform on the slice with physical spacing
-    # After isotropic resampling, all dimensions should have same spacing
-    # The 2D slice spacing is resolution * voxel_spacing
     voxel_spacing = spacing_info[0]  # Assuming isotropic
     slice_spacing = resolution * voxel_spacing
-    distance_map = distance_transform_edt(slice_mask, sampling=(slice_spacing, slice_spacing))
-
+    # distance_map = distance_transform_edt(slice_mask, sampling=(slice_spacing, slice_spacing))
+    diameter=compute_diameter_circle_fitting(slice_mask, spacing=slice_spacing)
     # Sample radius at the center of the slice (centerline position)
     # The center corresponds to the original voxel position
-    centerpoint_index = slice_mask.shape[0] // 2
-    radius = distance_map[centerpoint_index, centerpoint_index]
+    # centerpoint_index = slice_mask.shape[0] // 2
+    # radius = distance_map[centerpoint_index, centerpoint_index]
 
-    diameter = 2 * radius
+    # diameter = 2 * radius
 
     return diameter
 
@@ -367,7 +362,7 @@ def compute_branch_diameters_of_graph_slicing(graph, binary_mask, spacing_info, 
 def local_diameter(mask, center, tangent):
     slice_mask = extract_plane(mask, center, tangent)  # pass both center + normal
     dist_map = distance_transform_edt(slice_mask)
-    return 2 * np.max(dist_map)  # diameter = 2 * max radius
+    return 2 * np.max(dist_map) 
 
 
 def diameter_profile(mask, voxels):
@@ -435,7 +430,7 @@ def plane_basis(normal):
 
 
 
-def extract_plane(mask, center, normal, size=20, resolution=1.0):
+def extract_plane(mask, center, normal, size=40, resolution=1.0):
     """
     Extracts a 2D planar slice from a 3D binary mask perpendicular to a normal vector.
 
@@ -484,3 +479,31 @@ def extract_plane(mask, center, normal, size=20, resolution=1.0):
     )
 
     return slice_mask
+
+
+def fit_circle(points):
+    """
+    Least-squares circle fitting (Kasa method).
+    points: Nx2 array of (x, y) coordinates
+    Returns: (xc, yc, r)
+    """
+    x = points[:, 0]
+    y = points[:, 1]
+    A = np.c_[2*x, 2*y, np.ones_like(x)]
+    b = x**2 + y**2
+    c, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+    xc, yc = c[0], c[1]
+    r = np.sqrt(c[2] + xc**2 + yc**2)
+    return xc, yc, r
+
+def compute_diameter_circle_fitting(slice_mask, spacing=None):
+
+    contours = measure.find_contours(slice_mask,level=0.5)
+    if not contours:
+        return None
+    contour = max(contours, key=len)
+    points = np.array(contour)
+    xc, yc, r = fit_circle(points)
+    diameter = 2 * r * spacing
+    return diameter
+

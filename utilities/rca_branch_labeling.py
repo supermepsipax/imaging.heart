@@ -21,11 +21,9 @@ def is_side_branch(edge_position, parent_edge_position):
     if len(edge_position) != len(parent_edge_position) + 1:
         return False
 
-    # Get the last digit of both
     last_digit_parent = parent_edge_position[-1] if parent_edge_position else '0'
     last_digit_child = edge_position[-1]
 
-    # Side branch: last digit increases
     return last_digit_child > last_digit_parent
 
 
@@ -50,45 +48,33 @@ def annotate_rca_graph_with_branch_labels(graph):
     """
     updated_graph = nx.DiGraph(graph)
 
-    # Counter for acute marginal branches
     am_counter = 0
 
-    # Get all edges sorted by position (to process in hierarchical order)
     all_edges_with_pos = [
         (edge, updated_graph.edges[edge].get('edge_position', ''))
         for edge in updated_graph.edges()
     ]
-    # Sort by edge position length and value
     all_edges_with_pos.sort(key=lambda x: (len(x[1]), x[1]))
 
-    # First, label the main RCA trunk (all 1's)
     for edge, edge_pos in all_edges_with_pos:
         if edge_pos and all(c == '1' for c in edge_pos):
-            # This is part of the main RCA trunk
             updated_graph.edges[edge]['rca_branch'] = 'RCA'
 
-    # Now label side branches
     for edge, edge_pos in all_edges_with_pos:
         if not edge_pos:
             continue
 
-        # Skip if already labeled
         if 'rca_branch' in updated_graph.edges[edge]:
             continue
 
-        # Find the immediate parent
         if len(edge_pos) > 1:
             parent_pos = edge_pos[:-1]
 
-            # Check if this is a side branch
             if is_side_branch(edge_pos, parent_pos):
-                # This is a new side branch - increment counter and label
                 am_counter += 1
                 label = f"AM{am_counter}"
                 updated_graph.edges[edge]['rca_branch'] = label
             else:
-                # This is a continuation of parent branch
-                # Find parent's label
                 parent_edge = next(
                     (e for e in updated_graph.edges()
                      if updated_graph.edges[e].get('edge_position') == parent_pos),
@@ -98,20 +84,16 @@ def annotate_rca_graph_with_branch_labels(graph):
                     parent_label = updated_graph.edges[parent_edge].get('rca_branch', 'RCA')
                     updated_graph.edges[edge]['rca_branch'] = parent_label
                 else:
-                    # Fallback
                     updated_graph.edges[edge]['rca_branch'] = 'RCA'
 
-    # Count edges in each category for summary
     rca_trunk_count = sum(1 for e in updated_graph.edges()
                           if updated_graph.edges[e].get('rca_branch') == 'RCA')
 
-    # Print summary
     print(f"\n[RCA Branch Labeling]")
     print(f"                      RCA main trunk: {rca_trunk_count} edges")
     if am_counter > 0:
         print(f"                      Acute Marginal branches (AM): {am_counter}")
 
-    # Store metadata
     updated_graph.graph['rca_labeling'] = {
         'main_trunk_edges': rca_trunk_count,
         'num_acute_marginal_branches': am_counter

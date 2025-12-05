@@ -66,6 +66,9 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     step_mm = config.get('step_mm', 0.5)
     remove_bypass = config.get('remove_bypass', True)
     bypass_threshold = config.get('bypass_threshold', 2.0)
+    angle_weight = config.get('angle_weight', 0.15)
+    diameter_weight = config.get('diameter_weight', 0.25)
+    path_length_weight = config.get('path_length_weight', 0.6)
 
     os.makedirs(output_folder, exist_ok=True)
 
@@ -88,6 +91,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     print(f"  Remove bypass edges: {remove_bypass}")
     if remove_bypass:
         print(f"  Bypass threshold: {bypass_threshold} voxels")
+    print(f"  Branch designation weights: angle={angle_weight}, diameter={diameter_weight}, path_length={path_length_weight}")
     print(f"  Visualize results: {visualize}")
     print("=" * 80)
 
@@ -195,6 +199,9 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                     step_mm=step_mm,
                     remove_bypass=remove_bypass,
                     bypass_threshold=bypass_threshold,
+                    angle_weight=angle_weight,
+                    diameter_weight=diameter_weight,
+                    path_length_weight=path_length_weight,
                     output_csv=False,  # Don't save yet - we need to classify first
                     distance_array=distance_array_body  # Pass pre-computed distance transform
                 )
@@ -203,7 +210,6 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 processing_results.append(result)
                 print(f"  [OK] Vessel {body_idx + 1} processed successfully")
 
-            # Step 3: Classify LCA vs RCA based on complexity
             classification = classify_lca_rca_from_graphs(graphs, verbose=True)
             lca_index = classification['lca_index']
             rca_index = classification['rca_index']

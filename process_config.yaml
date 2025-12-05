@@ -1,0 +1,77 @@
+# ==============================================================================
+# IMG-Heart Coronary Artery Analysis Pipeline - Configuration File
+# ==============================================================================
+# This file controls all parameters for the automated coronary artery
+# processing pipeline. Parameters are organized by processing stage.
+# ==============================================================================
+
+# ==============================================================================
+# INPUT/OUTPUT CONFIGURATION
+# ==============================================================================
+# Specify where to find input NRRD mask files and where to save results
+
+input_folder: "data/batch_3"   # Directory containing .nrrd mask files
+output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
+
+
+# ==============================================================================
+# PREPROCESSING PARAMETERS
+# ==============================================================================
+# Control spatial resampling applied before skeleton extraction
+
+upsample_factor: 1
+# Spatial upsampling multiplier applied after isotropic resampling
+
+# ==============================================================================
+# GRAPH CONSTRUCTION PARAMETERS
+# ==============================================================================
+# Settings for converting skeleton to graph and cleaning artifacts
+
+remove_bypass: true
+# Whether to detect and remove spurious bypass edges at bifurcations
+# Bypass edges are artifacts where skeleton creates direct shortcuts
+# between branches that should be sequential
+
+bypass_threshold: 2.0
+# Maximum Euclidean distance (in voxels) for identifying bypass edges
+# Only used when remove_bypass=true
+
+# ==============================================================================
+# BIFURCATION ANGLE COMPUTATION PARAMETERS
+# ==============================================================================
+# Control the depth range for averaging angle measurements at bifurcations
+# Angles are computed at multiple depths and averaged to reduce noise from
+# local geometric irregularities near the bifurcation point
+
+min_depth_mm: 2.0
+# Minimum distance (mm) from bifurcation to start angle measurements
+max_depth_mm: 7.0
+# Maximum distance (mm) from bifurcation to end angle measurements
+step_mm: 0.5
+# Increment (mm) for sampling depths between min and max
+
+# ==============================================================================
+# BRANCH DESIGNATION WEIGHTS
+# ==============================================================================
+# Scoring weights for determining main vessel vs side branch at bifurcations
+# Used to classify which child branch continues the main vessel and which
+# is the side branch based on angle, diameter, and downstream path length
+#
+# IMPORTANT: Weights must sum to 1.0
+#
+# Higher weight = more influence on classification decision
+
+angle_weight: 0.15
+diameter_weight: 0.25
+path_length_weight: 0.6
+
+# ==============================================================================
+# VISUALIZATION SETTINGS
+# ==============================================================================
+
+visualize: false
+# Whether to display interactive 3D visualizations during processing
+# - true: Show visualizations (useful for debugging, inspecting results)
+# - false: No visualization (recommended for large batch processing)
+# WARNING: Each visualization opens in browser and consumes memory
+# For batch processing, disable this to prevent memory accumulation

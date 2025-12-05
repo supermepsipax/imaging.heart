@@ -1,8 +1,10 @@
 import nrrd
 import json
+import yaml
 import pickle
 import networkx as nx
 import ast
+from pathlib import Path
 
 def load_nrrd_mask(path, verbose=False):
     data, header = nrrd.read(path)
@@ -18,20 +20,41 @@ def load_nrrd_mask(path, verbose=False):
 
 def load_config(config_path):
     """
-    Load a JSON configuration file for pipeline parameters.
+    Load a configuration file for pipeline parameters.
+
+    Supports both JSON (.json) and YAML (.yaml, .yml) formats.
+    File format is auto-detected based on extension.
 
     Args:
-        config_path (str): Path to the JSON config file
+        config_path (str): Path to the config file (.json, .yaml, or .yml)
 
     Returns:
         dict: Dictionary containing configuration parameters
 
     Raises:
         FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is not valid JSON
+        ValueError: If file extension is not supported
+        json.JSONDecodeError: If JSON file is not valid
+        yaml.YAMLError: If YAML file is not valid
     """
+    path = Path(config_path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    ext = path.suffix.lower()
+
     with open(config_path, 'r') as f:
-        config = json.load(f)
+        if ext == '.json':
+            config = json.load(f)
+        elif ext in ['.yaml', '.yml']:
+            config = yaml.safe_load(f)
+        else:
+            raise ValueError(
+                f"Unsupported config file extension: {ext}. "
+                f"Use .json, .yaml, or .yml"
+            )
+
     return config
 
 

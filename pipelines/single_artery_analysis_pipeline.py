@@ -24,6 +24,7 @@ from analysis import convert_graph_to_dataframes
 
 def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_depth_mm=None,
                           step_mm=None, remove_bypass=None, bypass_threshold=None,
+                          angle_weight=None, diameter_weight=None, path_length_weight=None,
                           output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv",
                           config=None, config_path=None, distance_array=None):
     """
@@ -40,6 +41,9 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         step_mm (float, optional): Step size for depth increments in angle computation (default 0.5 mm)
         remove_bypass (bool, optional): Whether to remove bypass edges at high-degree nodes (default True)
         bypass_threshold (float, optional): Distance threshold in voxels for bypass detection (default 2.0)
+        angle_weight (float, optional): Weight for angle scoring in branch designation (default 0.15)
+        diameter_weight (float, optional): Weight for diameter scoring in branch designation (default 0.25)
+        path_length_weight (float, optional): Weight for path length scoring in branch designation (default 0.6)
         output_csv (bool): Whether to output CSV files (default True)
         nodes_csv (str): Output filename for nodes CSV (default "nodes.csv")
         edges_csv (str): Output filename for edges CSV (default "edges.csv")
@@ -73,6 +77,12 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
             remove_bypass = config.get('remove_bypass', True)
         if bypass_threshold is None:
             bypass_threshold = config.get('bypass_threshold', 2.0)
+        if angle_weight is None:
+            angle_weight = config.get('angle_weight', 0.15)
+        if diameter_weight is None:
+            diameter_weight = config.get('diameter_weight', 0.25)
+        if path_length_weight is None:
+            path_length_weight = config.get('path_length_weight', 0.6)
 
     # Set defaults if still None
     if min_depth_mm is None:
@@ -85,6 +95,12 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         remove_bypass = True
     if bypass_threshold is None:
         bypass_threshold = 2.0
+    if angle_weight is None:
+        angle_weight = 0.15
+    if diameter_weight is None:
+        diameter_weight = 0.25
+    if path_length_weight is None:
+        path_length_weight = 0.6
 
     start_time = time.time()
     processing_times = {}
@@ -212,7 +228,10 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         directed_skeleton_graph, spacing_info,
         min_depth_mm=min_depth_mm,
         max_depth_mm=max_depth_mm,
-        step_mm=step_mm
+        step_mm=step_mm,
+        angle_weight=angle_weight,
+        diameter_weight=diameter_weight,
+        path_length_weight=path_length_weight
     )
 
     # Count bifurcations with computed angles

@@ -2,12 +2,11 @@ import numpy as np
 import networkx as nx
 
 
-def compute_direction_vector(graph, start_node, end_node, spacing_info):
+def compute_direction_vector(start_node, end_node, spacing_info):
     """
     Computes a direction vector from start to end node in physical coordinates.
 
     Args:
-        graph (nx.DiGraph): Graph
         start_node (tuple): Starting node (x, y, z) in voxel coordinates
         end_node (tuple): Ending node (x, y, z) in voxel coordinates
         spacing_info (tuple): Voxel spacing (z, y, x) in mm
@@ -161,85 +160,6 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
     }
 
 
-def relabel_branch_subtree(graph, old_prefix, new_prefix):
-    """
-    Relabels all edges starting with old_prefix to start with new_prefix.
-    Adjusts all subsequent digits based on the transformation.
-
-    Examples:
-        old_prefix="12", new_prefix="122"
-        - "12" → "122"
-        - "122" → "1222"
-        - "123" → "1223"
-
-        old_prefix="111", new_prefix="122"
-        - "111" → "122"
-        - "1111" → "1222"
-        - "1112" → "1223"
-
-    Args:
-        graph (nx.DiGraph): Graph with edge_position labels
-        old_prefix (str): Old edge_position prefix
-        new_prefix (str): New edge_position prefix
-
-    Returns:
-        nx.DiGraph: Graph with relabeled edges
-    """
-    updated_graph = nx.DiGraph(graph)
-
-    # Find the differing base digit between old and new prefixes
-    # This determines how to shift subsequent digits
-    if len(old_prefix) == len(new_prefix):
-        # Direct replacement (e.g., "111" → "122")
-        old_base = int(old_prefix[-1])
-        new_base = int(new_prefix[-1])
-        digit_shift = new_base - old_base
-
-        for edge in updated_graph.edges():
-            edge_pos = updated_graph.edges[edge].get('edge_position', '')
-
-            if edge_pos.startswith(old_prefix):
-                # Replace prefix and shift remaining digits
-                remaining = edge_pos[len(old_prefix):]
-                if remaining:
-                    # Shift all remaining digits
-                    new_remaining = ''.join(str(int(d) + digit_shift) for d in remaining)
-                    new_label = new_prefix + new_remaining
-                else:
-                    new_label = new_prefix
-
-                updated_graph.edges[edge]['edge_position'] = new_label
-
-    else:
-        # Length change (e.g., "12" → "122" or "111" → "12")
-        for edge in updated_graph.edges():
-            edge_pos = updated_graph.edges[edge].get('edge_position', '')
-
-            if edge_pos.startswith(old_prefix):
-                if len(new_prefix) > len(old_prefix):
-                    # Extending (e.g., "12" → "122")
-                    # Add extra digit to all descendants
-                    remaining = edge_pos[len(old_prefix):]
-                    new_label = new_prefix + remaining
-                else:
-                    # Shortening (e.g., "111" → "12")
-                    # Remove digits and shift
-                    remaining = edge_pos[len(old_prefix):]
-                    old_base = int(old_prefix[-1])
-                    new_base = int(new_prefix[-1])
-                    digit_shift = new_base - old_base
-
-                    if remaining:
-                        new_remaining = ''.join(str(int(d) + digit_shift) for d in remaining)
-                        new_label = new_prefix + new_remaining
-                    else:
-                        new_label = new_prefix
-
-                updated_graph.edges[edge]['edge_position'] = new_label
-
-    return updated_graph
-
-
 def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, spacing_info):
     """
     Identifies which of three branches is the most geometrically central (Ramus).
@@ -279,7 +199,7 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
     # Compute direction vectors from bifurcation to each endpoint
     directions = {}
     for label, endpoint in endpoints.items():
-        direction = compute_direction_vector(graph, bifurcation_node, endpoint, spacing_info)
+        direction = compute_direction_vector(bifurcation_node, endpoint, spacing_info)
         directions[label] = direction
 
     # For each branch, compute the angle between the other two branches
@@ -406,7 +326,6 @@ def label_lca_branches(graph, trifurcation_threshold_mm=5.0):
             'metrics': dict of complexity metrics for each branch
         }
     """
-    # Detect trifurcation
     trifurcation_info = detect_lca_trifurcation(graph, trifurcation_threshold_mm)
 
     if not trifurcation_info['primary_branches']:
@@ -414,7 +333,6 @@ def label_lca_branches(graph, trifurcation_threshold_mm=5.0):
 
     primary_branches = trifurcation_info['primary_branches']
 
-    # Compute complexity for each primary branch
     branch_metrics = {}
     for branch_label in primary_branches:
         metrics = compute_branch_complexity_from_label(graph, branch_label)
@@ -566,8 +484,8 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
             labeling_result = label_lca_branches(updated_graph, trifurcation_threshold_mm)
             main_branch_labels = labeling_result['labels']
         else:
-            direction_1 = compute_direction_vector(updated_graph, bifurcation_node, endpoint_1, spacing_info)
-            direction_2 = compute_direction_vector(updated_graph, bifurcation_node, endpoint_2, spacing_info)
+            direction_1 = compute_direction_vector(bifurcation_node, endpoint_1, spacing_info)
+            direction_2 = compute_direction_vector(bifurcation_node, endpoint_2, spacing_info)
 
             anterior_component_1 = -direction_1[1]
             anterior_component_2 = -direction_2[1]
@@ -602,8 +520,8 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
             print("[WARNING] Could not find branch endpoints for spatial validation")
             main_branch_labels = {'LAD': '11', 'LCx': '12'}
         else:
-            direction_11 = compute_direction_vector(updated_graph, bifurcation_node, endpoint_11, spacing_info)
-            direction_12 = compute_direction_vector(updated_graph, bifurcation_node, endpoint_12, spacing_info)
+            direction_11 = compute_direction_vector(bifurcation_node, endpoint_11, spacing_info)
+            direction_12 = compute_direction_vector(bifurcation_node, endpoint_12, spacing_info)
 
             anterior_component_11 = -direction_11[1]
             anterior_component_12 = -direction_12[1]

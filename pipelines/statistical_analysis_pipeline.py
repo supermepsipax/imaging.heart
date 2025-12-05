@@ -2,9 +2,17 @@ import os
 import numpy as np
 from pathlib import Path
 from utilities import load_artery_analysis, load_config
+from analysis import (
+    extract_main_branch_statistics,
+    extract_all_branch_statistics,
+    extract_bifurcation_statistics,
+    compute_branch_tapering
+)
+from collections import defaultdict
 
 
-def analyze_artery_batch(input_folder=None, output_folder=None, config=None, config_path=None):
+def analyze_artery_batch(input_folder=None, output_folder=None, config=None, config_path=None,
+                         diameter_method=None, verbose=None):
     """
     Perform statistical analysis on a batch of artery analysis pickle files.
 
@@ -15,7 +23,9 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
         input_folder (str, optional): Path to folder containing .pkl analysis files
         output_folder (str, optional): Path to folder where analysis results will be saved
         config (dict, optional): Configuration dictionary with analysis parameters
-        config_path (str, optional): Path to JSON config file (if config not provided directly)
+        config_path (str, optional): Path to config file (if config not provided directly)
+        diameter_method (str, optional): 'slicing' or 'edt' - which diameter measurements to use
+        verbose (bool, optional): Whether to print detailed statistics for each artery
 
     Returns:
         dict: Summary statistics and results from the batch analysis
@@ -31,6 +41,10 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
         input_folder = config.get('input_folder')
     if output_folder is None:
         output_folder = config.get('output_folder')
+    if diameter_method is None:
+        diameter_method = config.get('diameter_method', 'slicing')
+    if verbose is None:
+        verbose = config.get('verbose', True)
 
     if input_folder is None:
         raise ValueError("input_folder must be provided either as a parameter or in the config file")
@@ -52,6 +66,9 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
     if output_folder:
         print(f"Output folder: {output_folder}")
     print(f"Found {len(pkl_files)} analysis files to process")
+    print(f"\nConfiguration:")
+    print(f"  Diameter method: {diameter_method}")
+    print(f"  Verbose output: {verbose}")
     print("=" * 80)
 
     results_summary = {
@@ -89,41 +106,6 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
             #     - 'config': Pipeline configuration parameters
             #
             # ========================================================================
-            # GRAPH NODE ATTRIBUTES (accessed via graph.nodes[node_id])
-            # ========================================================================
-            #
-            # Bifurcation nodes (degree > 2) may have:
-            #   - 'averaged_angle_A': Averaged bifurcation angle A (degrees)
-            #   - 'averaged_angle_B': Averaged bifurcation angle B (degrees)
-            #   - 'averaged_inflow_angle': Averaged inflow angle (degrees)
-            #   - 'branch_label': Anatomical label (e.g., 'LAD', 'LCx', 'RCA', etc.)
-            #
-            # All nodes have:
-            #   - Position coordinates as the node ID itself (tuple of x, y, z)
-            #
-            # ========================================================================
-            # GRAPH EDGE ATTRIBUTES (accessed via graph[u][v] or graph.edges[u, v])
-            # ========================================================================
-            #
-            # Geometric properties:
-            #   - 'length': Branch length in mm
-            #   - 'voxels': List of (x,y,z) coordinates along the branch path
-            #
-            # Diameter measurements (EDT method):
-            #   - 'mean_diameter_edt': Mean diameter using distance transform (mm)
-            #   - 'median_diameter_edt': Median diameter using distance transform (mm)
-            #   - 'diameter_profile_edt': List of diameter values along branch (mm)
-            #
-            # Diameter measurements (Slicing method):
-            #   - 'mean_diameter_slicing': Mean diameter using orthogonal slicing (mm)
-            #   - 'median_diameter_slicing': Median diameter using orthogonal slicing (mm)
-            #   - 'diameter_profile_slicing': List of diameter values along branch (mm)
-            #
-            # Anatomical labeling:
-            #   - 'branch_label': Anatomical branch name (e.g., 'LAD', 'LCx', 'D1', 'RCA', 'PDA')
-            #   - 'generation': Branch generation/level in hierarchy (0=main, 1=primary, etc.)
-            #
-            # ========================================================================
 
             # Extract basic information
             graph = data['final_graph']
@@ -133,102 +115,178 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
             artery_type = metadata.get('artery', 'unknown')
             patient_id = metadata.get('file_basename', 'unknown')
 
-            print(f"  Patient: {patient_id}")
-            print(f"  Artery: {artery_type}")
-            print(f"  Spacing: {spacing}")
-            print(f"  Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
+            if verbose:
+                print(f"  Patient: {patient_id}")
+                print(f"  Artery: {artery_type}")
+                print(f"  Spacing: {spacing}")
+                print(f"  Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
+            else:
+                print(f"  Patient: {patient_id}, Artery: {artery_type}")
 
-            # ========================================================================
-            # EXAMPLE: Accessing graph data
-            # ========================================================================
-
-            print(f"\n  Example data access:")
-
-            # Example 1: Iterate over all edges and access diameter profiles
-            print(f"    Branches with diameter profiles:")
-            for edge_idx, (u, v) in enumerate(graph.edges()):
-                if edge_idx >= 3:  # Only show first 3 as examples
-                    print(f"    ... ({graph.number_of_edges() - 3} more edges)")
-                    break
-
-                edge_data = graph[u][v]
-                branch_label = edge_data.get('branch_label', 'unlabeled')
-                length = edge_data.get('length', 0.0)
-                mean_diam_edt = edge_data.get('mean_diameter_edt', 0.0)
-                mean_diam_slice = edge_data.get('mean_diameter_slicing', 0.0)
-
-                print(f"      Edge {u}->{v} ({branch_label}): "
-                      f"length={length:.2f}mm, "
-                      f"diam_edt={mean_diam_edt:.2f}mm, "
-                      f"diam_slice={mean_diam_slice:.2f}mm")
-
-            # Example 2: Find bifurcations and access angle data
-            print(f"\n    Bifurcations with angle measurements:")
-            bifurcation_count = 0
-            for node in graph.nodes():
-                if graph.out_degree(node) > 1:  # Bifurcation point
-                    node_data = graph.nodes[node]
-                    if 'averaged_angle_A' in node_data:
-                        bifurcation_count += 1
-                        if bifurcation_count <= 3:  # Only show first 3
-                            angle_A = node_data['averaged_angle_A']
-                            angle_B = node_data['averaged_angle_B']
-                            inflow = node_data.get('averaged_inflow_angle', 'N/A')
-                            print(f"      Node {node}: angle_A={angle_A:.1f}°, "
-                                  f"angle_B={angle_B:.1f}°, inflow={inflow}")
-
-            if bifurcation_count > 3:
-                print(f"      ... ({bifurcation_count - 3} more bifurcations)")
-
-            # ========================================================================
-            # YOUR STATISTICAL ANALYSIS CODE GOES HERE
-            # ========================================================================
+            # Example 1: Main branch statistics
+            #   main_branches = extract_main_branch_statistics(
+            #       graph, spacing, artery_type='LCA', diameter_method='slicing'
+            #   )
             #
-            # This is where you would add your own analysis code. Examples:
+            # Returns dict with structure:
+            #   {
+            #       'LAD': {
+            #           'total_path_length': 120.5,      # Sum of edge lengths (mm)
+            #           'direct_path_length': 95.2,      # Euclidean start->end (mm)
+            #           'tortuosity': 1.266,             # total / direct
+            #           'mean_diameter': 3.42,           # Mean diameter (mm)
+            #           'diameter_profile': [3.8, 3.7, ...],  # Stitched profile
+            #           'start_coord': (100, 50, 25),    # Start voxel coords
+            #           'end_coord': (200, 80, 30),      # End voxel coords
+            #           'num_edges': 15,                 # Number of segments
+            #           'edge_path': [(u1,v1), (u2,v2), ...]  # Ordered edges
+            #       },
+            #       'LCx': { ... },
+            #       'Ramus': { ... }  # Only if present
+            #   }
             #
-            # 1. Compute statistics by branch type:
-            #    lad_branches = [graph[u][v] for u, v in graph.edges()
-            #                    if graph[u][v].get('branch_label') == 'LAD']
-            #    lad_diameters = [b['mean_diameter_slicing'] for b in lad_branches]
-            #    print(f"LAD mean diameter: {np.mean(lad_diameters):.2f} mm")
+            # Example 2: Bifurcation statistics
+            #   bifurcations = extract_bifurcation_statistics(
+            #       graph, spacing, diameter_method='slicing'
+            #   )
             #
-            # 2. Analyze diameter tapering along branches:
-            #    for u, v in graph.edges():
-            #        profile = graph[u][v]['diameter_profile_slicing']
-            #        tapering = (profile[0] - profile[-1]) / len(profile)
-            #        print(f"Branch {u}->{v} tapering: {tapering:.4f} mm/voxel")
-            #
-            # 3. Compare EDT vs Slicing diameter methods:
-            #    for u, v in graph.edges():
-            #        edt = graph[u][v]['mean_diameter_edt']
-            #        slicing = graph[u][v]['mean_diameter_slicing']
-            #        diff = abs(edt - slicing)
-            #        print(f"Diameter difference: {diff:.2f} mm")
-            #
-            # 4. Analyze bifurcation angle distributions:
-            #    angles = [graph.nodes[n]['averaged_angle_A']
-            #              for n in graph.nodes()
-            #              if 'averaged_angle_A' in graph.nodes[n]]
-            #    print(f"Mean bifurcation angle: {np.mean(angles):.1f}°")
-            #
-            # 5. Export data to pandas DataFrame for further analysis:
-            #    import pandas as pd
-            #    edge_data = []
-            #    for u, v in graph.edges():
-            #        edge_data.append({
-            #            'patient': patient_id,
-            #            'artery': artery_type,
-            #            'branch': graph[u][v].get('branch_label', 'unknown'),
-            #            'length': graph[u][v]['length'],
-            #            'diameter': graph[u][v]['mean_diameter_slicing']
-            #        })
-            #    df = pd.DataFrame(edge_data)
-            #    df.to_csv(f"{output_folder}/{patient_id}_{artery_type}_analysis.csv")
+            # Returns dict with structure:
+            #   {
+            #       'LAD_D1': {
+            #           'bifurcation_node': (x, y, z),
+            #           'main_branch_label': 'LAD',
+            #           'side_branch_label': 'D1',
+            #           'angles': {
+            #               'averaged_angle_A': 45.2,       # Angle A (degrees)
+            #               'averaged_angle_B': 68.5,       # Angle B (degrees)
+            #               'averaged_angle_C': 113.7,      # Angle C (degrees)
+            #               'averaged_inflow_angle': 155.3  # Inflow angle (degrees)
+            #           },
+            #           'diameters': {
+            #               'PMV': 3.5,           # Proximal main vessel (mm)
+            #               'DMV': 3.2,           # Distal main vessel (mm)
+            #               'side_branch': 2.1    # Side branch (mm)
+            #           }
+            #       },
+            #       'LCx_OM1': { ... },
+            #       ...
+            #   }
             #
             # ========================================================================
 
+            # ========================================================================
+            # STATISTICAL ANALYSIS
+            # ========================================================================
 
-            # TODO: Add your statistical analysis here
+            if verbose:
+                print(f"\n  --- Extracting Statistics ---")
+
+            if verbose:
+                print(f"\n  [Main Branch Statistics]")
+            try:
+                main_branches = extract_main_branch_statistics(
+                    graph, spacing, artery_type=artery_type, diameter_method=diameter_method
+                )
+
+                if verbose:
+                    for branch_name, stats in main_branches.items():
+                        print(f"\n    {branch_name}:")
+                        print(f"      Total path length:    {stats['total_path_length']:.2f} mm")
+                        print(f"      Direct path length:   {stats['direct_path_length']:.2f} mm")
+                        print(f"      Tortuosity:           {stats['tortuosity']:.3f}")
+                        print(f"      Mean diameter:        {stats['mean_diameter']:.2f} mm")
+                        print(f"      Number of segments:   {stats['num_edges']}")
+
+                    if not main_branches:
+                        print(f"    No main branches found")
+
+            except Exception as e:
+                if verbose:
+                    print(f"    [ERROR] Failed to extract main branch statistics: {str(e)}")
+
+            if verbose:
+                print(f"\n  [Bifurcation Statistics]")
+            try:
+                bifurcations = extract_bifurcation_statistics(
+                    graph, spacing, diameter_method=diameter_method
+                )
+
+                if verbose:
+                    if bifurcations:
+                        for bifurc_name, bifurc_data in bifurcations.items():
+                            print(f"\n    {bifurc_name}:")
+
+                            angles = bifurc_data['angles']
+                            print(f"      Angles:")
+                            if angles['averaged_angle_A'] is not None:
+                                print(f"        Angle A (parent-side):     {angles['averaged_angle_A']:.1f}°")
+                            if angles['averaged_angle_B'] is not None:
+                                print(f"        Angle B (bifurcation):     {angles['averaged_angle_B']:.1f}°")
+                            if angles['averaged_angle_C'] is not None:
+                                print(f"        Angle C (parent-distal):   {angles['averaged_angle_C']:.1f}°")
+                            if angles['averaged_inflow_angle'] is not None:
+                                print(f"        Inflow angle:              {angles['averaged_inflow_angle']:.1f}°")
+
+                            diameters = bifurc_data['diameters']
+                            print(f"      Diameters:")
+                            if diameters['PMV'] is not None:
+                                print(f"        Proximal main vessel:  {diameters['PMV']:.2f} mm")
+                            if diameters['DMV'] is not None:
+                                print(f"        Distal main vessel:    {diameters['DMV']:.2f} mm")
+                            if diameters['side_branch'] is not None:
+                                print(f"        Side branch:           {diameters['side_branch']:.2f} mm")
+
+                    else:
+                        print(f"    No bifurcations found")
+
+            except Exception as e:
+                if verbose:
+                    print(f"    [ERROR] Failed to extract bifurcation statistics: {str(e)}")
+
+            if verbose:
+                print(f"\n  [All Branch Statistics]")
+            try:
+                all_branches = extract_all_branch_statistics(
+                    graph, spacing, diameter_method=diameter_method
+                )
+
+                if verbose:
+                    if all_branches:
+                        branches_by_label = defaultdict(list)
+                        for branch in all_branches:
+                            branches_by_label[branch['branch_label']].append(branch)
+
+                        for branch_label in sorted(branches_by_label.keys()):
+                            branches = branches_by_label[branch_label]
+                            print(f"\n    {branch_label}: ({len(branches)} segment{'s' if len(branches) > 1 else ''})")
+
+                            for i, branch in enumerate(branches, 1):
+                                if len(branches) > 1:
+                                    print(f"      Segment {i}:")
+                                    indent = "  "
+                                else:
+                                    indent = ""
+
+                                print(f"      {indent}Length:         {branch['length']:.2f} mm")
+                                print(f"      {indent}Mean diameter:  {branch['mean_diameter']:.2f} mm")
+
+                    else:
+                        print(f"    No branches found")
+
+            except Exception as e:
+                if verbose:
+                    print(f"    [ERROR] Failed to extract all branch statistics: {str(e)}")
+
+            if verbose:
+                print(f"\n  [Summary]")
+                total_branches = len([
+                    e for e in graph.edges()
+                    if 'lca_branch' in graph.edges[e] or 'rca_branch' in graph.edges[e] or 'branch_label' in graph.edges[e]
+                ])
+                total_bifurcations = len([n for n in graph.nodes()
+                                         if 'averaged_angle_A' in graph.nodes[n]])
+                print(f"    Total labeled branches:    {total_branches}")
+                print(f"    Total bifurcations:        {total_bifurcations}")
 
 
             results_summary['processed_count'] += 1
@@ -243,7 +301,6 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
             })
             results_summary['failed_count'] += 1
 
-    # Print summary
     print("\n" + "=" * 80)
     print("BATCH ANALYSIS COMPLETE - SUMMARY")
     print("=" * 80)
@@ -261,9 +318,17 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
 
 
 if __name__ == "__main__":
-    # Example usage
     results = analyze_artery_batch(
-        input_folder='results/test_batch',
-        output_folder='results/statistics',
-        config_path='config.json'  # Optional
+        config_path='analysis_config.yaml'
     )
+
+    print(f"\n{'=' * 80}")
+    print(f"ANALYSIS COMPLETE - SUMMARY")
+    print(f"{'=' * 80}")
+    print(f"Files processed: {results['processed_count']}/{results['total_files']}")
+    print(f"Files failed: {results['failed_count']}/{results['total_files']}")
+    if results['failed_files']:
+        print(f"\nFailed files:")
+        for failed in results['failed_files']:
+            print(f"  - {failed['filename']}: {failed['error']}")
+    print(f"{'=' * 80}")

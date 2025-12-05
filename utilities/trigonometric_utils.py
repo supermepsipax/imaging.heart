@@ -407,7 +407,8 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
 
 
 def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info,
-                                   min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
+                                   min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5,
+                                   angle_weight=0.15, diameter_weight=0.25, path_length_weight=0.6):
     """
     Computes all bifurcation angles at a single bifurcation node following the paper's methodology.
 
@@ -424,6 +425,9 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
         min_depth_mm (float): Minimum depth for averaging (default 5.0 mm)
         max_depth_mm (float): Maximum depth for averaging (default 10.0 mm)
         step_mm (float): Step size for depth increments (default 0.5 mm)
+        angle_weight (float): Weight for angle scoring in branch designation (default 0.15)
+        diameter_weight (float): Weight for diameter scoring in branch designation (default 0.25)
+        path_length_weight (float): Weight for path length scoring in branch designation (default 0.6)
 
     Returns:
         dict: Dictionary containing averaged angles and angle measurements at each depth
@@ -516,7 +520,8 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
     ]
 
     designation_result = determine_child_branch_angle_designations(
-        edges, averaged_unlabeled_angles, graph=directed_graph
+        edges, averaged_unlabeled_angles, graph=directed_graph,
+        angle_weight=angle_weight, diameter_weight=diameter_weight, path_length_weight=path_length_weight
     )
     labeled_angles = designation_result['labeled_angles']
     distal_child_index = designation_result['distal_child_index']
@@ -704,7 +709,8 @@ def compute_angles_at_bifurcation_legacy(bifurcation_node, directed_graph, spaci
 
 
 def traverse_graph_and_compute_angles(directed_graph, spacing_info,
-                                      min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
+                                      min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5,
+                                      angle_weight=0.15, diameter_weight=0.25, path_length_weight=0.6):
     """
     Traverses the directed graph from origin, computes bifurcation angles, and labels edges.
 
@@ -717,6 +723,9 @@ def traverse_graph_and_compute_angles(directed_graph, spacing_info,
         min_depth_mm (float): Minimum depth for averaging (default 5.0 mm)
         max_depth_mm (float): Maximum depth for averaging (default 10.0 mm)
         step_mm (float): Step size for depth increments (default 0.5 mm)
+        angle_weight (float): Weight for angle scoring in branch designation (default 0.15)
+        diameter_weight (float): Weight for diameter scoring in branch designation (default 0.25)
+        path_length_weight (float): Weight for path length scoring in branch designation (default 0.6)
 
     Returns:
         nx.DiGraph: Updated graph with angle data in nodes and 'edge_position' labels in edges
@@ -758,7 +767,8 @@ def traverse_graph_and_compute_angles(directed_graph, spacing_info,
         elif out_degree == 2 and in_degree == 1:
             angle_data = compute_angles_at_bifurcation(
                 node, updated_graph, spacing_info,
-                min_depth_mm, max_depth_mm, step_mm
+                min_depth_mm, max_depth_mm, step_mm,
+                angle_weight, diameter_weight, path_length_weight
             )
 
             if angle_data is not None:

@@ -1,10 +1,10 @@
 import numpy as np
 from scipy import ndimage
-import networkx as nx
-import SimpleITK as sitk
+# import networkx as nx
+# import SimpleITK as sitk
 from skimage.morphology import skeletonize
-from vtk.util import numpy_support
-import vtk
+# from vtk.util import numpy_support
+# import vtk
 # from vmtk_visualizations import extract_centerline_vmtk
 
 def ensure_continuous_body(binary_mask, debug=False):
@@ -36,7 +36,7 @@ def ensure_continuous_body(binary_mask, debug=False):
 
     return num_of_bodies == 1, labelled_bodies
 
-def extract_centerline_skimage(binary_mask,distance_array,smooth_sigma=1, neighborhood_size=3,dialation_iterations=5):
+def extract_centerline_skimage(binary_mask): #,distance_array,smooth_sigma=1, neighborhood_size=3,dialation_iterations=5):
     """
     Reduces the binary_mask into a single voxel representation
 

@@ -254,14 +254,14 @@ def compute_diameter_at_voxel(binary_mask, voxel, normal_vector, spacing_info, s
     slice_mask = extract_plane(binary_mask, voxel, normal_vector, size=slice_size, resolution=resolution)
     voxel_spacing = spacing_info[0]  # Assuming isotropic
     slice_spacing = resolution * voxel_spacing
-    # distance_map = distance_transform_edt(slice_mask, sampling=(slice_spacing, slice_spacing))
-    diameter=compute_diameter_circle_fitting(slice_mask, spacing=slice_spacing)
+    distance_map = distance_transform_edt(slice_mask, sampling=(slice_spacing, slice_spacing))
+    # diameter=compute_diameter_circle_fitting(slice_mask, spacing=slice_spacing)
     # Sample radius at the center of the slice (centerline position)
     # The center corresponds to the original voxel position
-    # centerpoint_index = slice_mask.shape[0] // 2
-    # radius = distance_map[centerpoint_index, centerpoint_index]
+    centerpoint_index = slice_mask.shape[0] // 2
+    radius = distance_map[centerpoint_index, centerpoint_index]
 
-    # diameter = 2 * radius
+    diameter = 2 * radius
 
     return diameter
 

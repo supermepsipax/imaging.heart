@@ -1,0 +1,46 @@
+# ==============================================================================
+# Statistical Analysis Pipeline - Configuration File
+# ==============================================================================
+# This file controls parameters for analyzing processed artery data
+# ==============================================================================
+
+# ==============================================================================
+# INPUT/OUTPUT CONFIGURATION
+# ==============================================================================
+
+input_folder: "results/test_batch"
+# Directory containing processed pickle files (*_analysis.pkl) from the
+# batch artery analysis pipeline. Each pickle file contains the complete
+# graph, diameter profiles, spacing info, and metadata for one artery.
+
+output_folder: "results/statistics"
+# Optional directory for saving statistical analysis results
+# Currently used for organizing output, can be used for future CSV exports
+# or aggregated statistics files
+
+
+# ==============================================================================
+# ANALYSIS PARAMETERS
+# ==============================================================================
+
+diameter_method: "slicing"
+# Which diameter measurement method to use for statistics
+# Options:
+#   - "slicing": Orthogonal slice-based diameter measurements (more accurate)
+#   - "edt": Euclidean distance transform-based measurements (faster)
+# Both methods are stored in the pickle files, this selects which to analyze
+
+
+# ==============================================================================
+# OUTPUT OPTIONS
+# ==============================================================================
+
+verbose: true
+# Print detailed statistics for each artery
+# - true: Print full statistics for all branches and bifurcations
+# - false: Print only summary information
+
+print_diameter_profiles: false
+# Print complete diameter profiles for main branches
+# - true: Print full diameter profile arrays (can be very long)
+# - false: Print only summary statistics (recommended)

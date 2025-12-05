@@ -7,7 +7,7 @@ pyrightconfig.json
 __pycache__/
 *.py[codz]
 *$py.class
-
+*.pkl
 # C extensions
 *.so
 

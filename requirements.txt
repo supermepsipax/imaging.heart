@@ -6,3 +6,4 @@ scikit-image
 pynrrd
 pandas
 networkx
+psutil

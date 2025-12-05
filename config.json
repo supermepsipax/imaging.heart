@@ -1,10 +1,11 @@
 {
-  "input_folder": "data/test_batch",
-  "output_folder": "results/test_batch",
-  "upsample_factor": 1,
-  "min_depth_mm": 2.0,
-  "max_depth_mm": 7.0,
-  "step_mm": 0.5,
-  "remove_bypass": true,
-  "bypass_threshold": 2.0
+	"input_folder": "data/test_batch",
+	"output_folder": "results/test_batch",
+	"upsample_factor": 1,
+	"min_depth_mm": 2.0,
+	"max_depth_mm": 7.0,
+	"step_mm": 0.5,
+	"remove_bypass": true,
+	"bypass_threshold": 2.0,
+	"visualize": true
 }

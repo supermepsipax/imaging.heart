@@ -229,25 +229,77 @@ def compute_bifurcation_angles(points_list, plane_normal, spacing_info):
 
     return angles
 
-def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
+def compute_max_path_length_to_endpoint(graph, start_node):
+    """
+    Computes the maximum path length from a node to any endpoint in the graph.
+
+    Performs DFS traversal from the start node to find all paths to endpoint nodes
+    (nodes with out_degree == 0) and returns the longest path length using the
+    'path_length_mm' edge attribute.
+
+    Args:
+        graph (nx.DiGraph): Directed graph with 'path_length_mm' in edge attributes
+        start_node (tuple): Starting node coordinates
+
+    Returns:
+        float: Maximum path length in mm from start_node to any endpoint
+    """
+    if graph.out_degree(start_node) == 0:
+        return 0.0
+
+    max_length = 0.0
+
+    # DFS to find all paths to endpoints
+    def dfs(node, current_length):
+        nonlocal max_length
+
+        out_edges = list(graph.out_edges(node, data=True))
+
+        if len(out_edges) == 0:
+            # Reached an endpoint
+            max_length = max(max_length, current_length)
+            return
+
+        for _, next_node, edge_data in out_edges:
+            edge_length = edge_data.get('path_length_mm', 0.0)
+            dfs(next_node, current_length + edge_length)
+
+    dfs(start_node, 0.0)
+    return max_length
+
+
+def determine_child_branch_angle_designations(edges, angles, graph=None,
+                                               angle_weight=0.15, diameter_weight=0.25,
+                                               path_length_weight=0.6):
     """
     Determines which child branch is the distal main vessel vs side branch using a scoring system.
 
     Scores each child branch based on:
     - Angle with parent: angles closer to 180° (straight) score higher, 90° (perpendicular) scores lowest
     - Diameter: larger diameters score higher
+    - Path length: longer paths to endpoints score higher (most important for vessel hierarchy)
 
     Args:
         edges (list): List of edges in format [(node1, node2, edge_data), ...]
                       where edges[0] is parent, edges[1] is child_1, edges[2] is child_2
         angles (list): List of angles [parent-child_1, child_1-child_2, parent-child_2]
-        angle_weight (float): Weight for angle scoring (0-1), remainder is diameter weight
+        graph (nx.DiGraph, optional): Directed graph for computing path lengths to endpoints
+        angle_weight (float): Weight for angle scoring (default: 0.5)
+        diameter_weight (float): Weight for diameter scoring (default: 0.25)
+        path_length_weight (float): Weight for path length scoring (default: 0.25)
 
     Returns:
         dict: Labeled angles {'angle_A': parent-side, 'angle_B': child_1-child_2, 'angle_C': parent-distal}
     """
-    diameter_weight = 1 - angle_weight
     eps = 1e-6  # Small epsilon for numerical stability
+
+    # Validate weights
+    total_weight = angle_weight + diameter_weight + path_length_weight
+    if abs(total_weight - 1.0) > eps:
+        raise ValueError(
+            f"Weights must sum to 1.0, got {total_weight:.3f} "
+            f"(angle={angle_weight}, diameter={diameter_weight}, path_length={path_length_weight})"
+        )
 
     if len(angles) != 3:
         raise ValueError(f"Expected 3 angles, got {len(angles)}")
@@ -262,7 +314,10 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
 
     edge1_data = edges[1][2]
     edge2_data = edges[2][2]
+    child_1_end_node = edges[1][1]
+    child_2_end_node = edges[2][1]
 
+    # Get diameter information
     if 'mean_diameter_slicing' in edge1_data:
         child_1_diameter = edge1_data['mean_diameter_slicing']
         child_2_diameter = edge2_data['mean_diameter_slicing']
@@ -278,7 +333,6 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
     # Angle scoring: distance from 90° (perpendicular)
     # 180° (straight) → score = 1.0 (best)
     # 90° (perpendicular) → score = 0.0 (worst)
-
     angle_score_1 = abs(child_1_parent_angle - 90.0) / 90.0
     angle_score_2 = abs(child_2_parent_angle - 90.0) / 90.0
 
@@ -292,8 +346,41 @@ def determine_child_branch_angle_designations(edges, angles, angle_weight=0.75):
         diam_score_1 = (child_1_diameter - min_d) / (max_d - min_d)
         diam_score_2 = (child_2_diameter - min_d) / (max_d - min_d)
 
-    total_score_1 = angle_weight * angle_score_1 + diameter_weight * diam_score_1
-    total_score_2 = angle_weight * angle_score_2 + diameter_weight * diam_score_2
+    # Path length scoring: normalize between the two children
+    # Longer path to endpoint gets higher score [0, 1]
+    # IMPORTANT: Include the current edge's length + downstream path length
+    if graph is not None:
+        # Get the length of the current edges themselves
+        edge1_length = edge1_data.get('path_length_mm', 0)
+        edge2_length = edge2_data.get('path_length_mm', 0)
+
+        # Get downstream path lengths from end of each edge
+        child_1_downstream = compute_max_path_length_to_endpoint(graph, child_1_end_node)
+        child_2_downstream = compute_max_path_length_to_endpoint(graph, child_2_end_node)
+
+        # Total path length = edge itself + downstream
+        child_1_path_length = edge1_length + child_1_downstream
+        child_2_path_length = edge2_length + child_2_downstream
+
+        min_p = min(child_1_path_length, child_2_path_length)
+        max_p = max(child_1_path_length, child_2_path_length)
+
+        if abs(max_p - min_p) < eps:
+            path_score_1 = path_score_2 = 0.5
+        else:
+            path_score_1 = (child_1_path_length - min_p) / (max_p - min_p)
+            path_score_2 = (child_2_path_length - min_p) / (max_p - min_p)
+    else:
+        # If no graph provided, fall back to equal scoring
+        path_score_1 = path_score_2 = 0.5
+
+    # Compute total weighted scores
+    total_score_1 = (angle_weight * angle_score_1 +
+                     diameter_weight * diam_score_1 +
+                     path_length_weight * path_score_1)
+    total_score_2 = (angle_weight * angle_score_2 +
+                     diameter_weight * diam_score_2 +
+                     path_length_weight * path_score_2)
 
     if total_score_1 >= total_score_2:
         labelled_angles = {
@@ -428,7 +515,9 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
         np.mean(angles_0_2) if angles_0_2 else None
     ]
 
-    designation_result = determine_child_branch_angle_designations(edges, averaged_unlabeled_angles)
+    designation_result = determine_child_branch_angle_designations(
+        edges, averaged_unlabeled_angles, graph=directed_graph
+    )
     labeled_angles = designation_result['labeled_angles']
     distal_child_index = designation_result['distal_child_index']
     side_child_index = designation_result['side_child_index']

@@ -4,6 +4,41 @@ import numpy as np
 import networkx as nx
 
 
+def get_anatomical_branch_color(anatomical_label):
+    """
+    Determines color based on anatomical branch label.
+
+    Args:
+        anatomical_label (str): Anatomical branch label (e.g., "LAD", "LCx", "D1", "OM2", "AM1")
+
+    Returns:
+        str: Color name for the branch
+    """
+    if not anatomical_label:
+        return 'gray'
+
+    # Main trunks: Blue
+    if anatomical_label in ['RCA', 'Left_Main', 'LAD']:
+        return 'blue'
+
+    # LCx: Orange
+    if anatomical_label == 'LCx':
+        return 'orange'
+
+    # Ramus: Purple
+    if anatomical_label == 'Ramus' or anatomical_label.startswith('R'):
+        return 'purple'
+
+    # All marginal and diagonal branches: Green
+    if (anatomical_label.startswith('D') or     # Diagonal (LAD side branches)
+        anatomical_label.startswith('OM') or    # Obtuse Marginal (LCx side branches)
+        anatomical_label.startswith('AM')):     # Acute Marginal (RCA side branches)
+        return 'green'
+
+    # Default
+    return 'gray'
+
+
 def get_edge_hierarchy_color(edge_position_label):
     """
     Determines color based on edge position label for hierarchical visualization.
@@ -32,15 +67,17 @@ def get_edge_hierarchy_color(edge_position_label):
     return 'green'
 
 
-def visualize_3d_graph(graph, binary_mask=None):
+def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surface"):
     """
     Will create a 3D visualization that will open in a web browser to view a created networkx graph
-    and an optional 3d mesh of the original binary mask. 
+    and an optional 3d mesh of the original binary mask.
 
-    graph: NetworkX graph where:
-        - nodes are (x, y, z) coordinate tuples
-        - edges have 'voxels' attribute with list of voxel coordinates in the path
-    binary_mask: 3D numpy array where 1s represent the artery
+    Args:
+        graph: NetworkX graph where:
+            - nodes are (x, y, z) coordinate tuples
+            - edges have 'voxels' attribute with list of voxel coordinates in the path
+        binary_mask: 3D numpy array where 1s represent the artery
+        title (str): Title for the visualization (default: "3D Graph with Artery Surface")
     """
     traces = []
     
@@ -78,39 +115,66 @@ def visualize_3d_graph(graph, binary_mask=None):
     )
     traces.append(straight_trace)
 
-    # Check if graph is directed and has edge_position attributes
+    # Check if graph is directed and has labeling
     is_directed = isinstance(graph, nx.DiGraph)
+    has_anatomical_labels = False
     has_edge_positions = False
+
     if graph.number_of_edges() > 0:
+        # Check for anatomical labels (lca_branch or rca_branch)
+        edges_with_anatomical = sum(
+            1 for edge in graph.edges()
+            if 'lca_branch' in graph.edges[edge] or 'rca_branch' in graph.edges[edge]
+        )
+        has_anatomical_labels = edges_with_anatomical > 0
+
         # Check how many edges have edge_position attribute
         edges_with_position = sum(1 for edge in graph.edges() if 'edge_position' in graph.edges[edge])
-        total_edges = graph.number_of_edges()
-
-        # Use hierarchical coloring if any edges have position labels
         has_edge_positions = edges_with_position > 0
 
-        if edges_with_position < total_edges:
-            print(f"[INFO] Visualization: {edges_with_position}/{total_edges} edges have 'edge_position' attribute.")
-            print(f"       Edges without labels will be shown in gray.")
+        if has_anatomical_labels:
+            print(f"[INFO] Visualization: Using anatomical branch labels for coloring")
+        elif has_edge_positions:
+            print(f"[INFO] Visualization: Using edge position hierarchy for coloring")
+            if edges_with_position < graph.number_of_edges():
+                print(f"       {edges_with_position}/{graph.number_of_edges()} edges have 'edge_position' attribute.")
 
-    # If directed and has edge positions, color by hierarchy
-    if is_directed and has_edge_positions:
+    # If directed and has labels, color by anatomy or hierarchy
+    if is_directed and (has_anatomical_labels or has_edge_positions):
         # Group edges by color category
-        edges_by_color = {'blue': [], 'orange': [], 'green': [], 'gray': []}
+        edges_by_color = {'blue': [], 'orange': [], 'green': [], 'purple': [], 'gray': []}
 
         for edge in graph.edges():
             edge_data = graph.edges[edge]
-            edge_position = edge_data.get('edge_position', '')
-            color = get_edge_hierarchy_color(edge_position)
+
+            # Try anatomical labeling first
+            if has_anatomical_labels:
+                anatomical_label = edge_data.get('lca_branch') or edge_data.get('rca_branch', '')
+                color = get_anatomical_branch_color(anatomical_label)
+            else:
+                # Fall back to edge position hierarchy
+                edge_position = edge_data.get('edge_position', '')
+                color = get_edge_hierarchy_color(edge_position)
+
             edges_by_color[color].append(edge)
 
         # Create separate traces for each color category
-        color_names = {
-            'blue': 'Main trunk (all 1s)',
-            'orange': 'First major branch (1+2s)',
-            'green': 'Other branches',
-            'gray': 'Unlabeled edges'
-        }
+        if has_anatomical_labels:
+            color_names = {
+                'blue': 'Main vessels (RCA/LAD/Left Main)',
+                'orange': 'LCx',
+                'purple': 'Ramus',
+                'green': 'Side branches (D/OM/AM)',
+                'gray': 'Unlabeled edges'
+            }
+        else:
+            color_names = {
+                'blue': 'Main trunk (all 1s)',
+                'orange': 'First major branch (1+2s)',
+                'green': 'Other branches',
+                'purple': 'Other branches',
+                'gray': 'Unlabeled edges'
+            }
 
         for color, edges_list in edges_by_color.items():
             if len(edges_list) == 0:
@@ -221,7 +285,7 @@ def visualize_3d_graph(graph, binary_mask=None):
             zaxis=dict(showgrid=True),
             aspectmode='data'
         ),
-        title="3D Graph with Artery Surface"
+        title=title
     )
     fig.show()
 

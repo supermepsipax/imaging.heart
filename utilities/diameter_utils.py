@@ -34,28 +34,31 @@ def compute_average_diameter_of_branch(distance_array, branch_coordinates):
     and calculates the average diameter. The distance_array should be a distance transform
     where each voxel value represents the distance (radius) from the centerline to the vessel wall.
 
-    The function creates a binary mask of the branch path, multiplies it with the distance array
-    to isolate only the radii along the branch, then computes the average diameter as twice
-    the average radius.
+    The function extracts radius values at each coordinate in the branch path and computes
+    statistics (mean, median) as well as returning the full diameter profile.
 
     Args:
         distance_array (array): 3D distance transform array where values represent radii in mm (or voxel units)
         branch_coordinates (list): List of (x, y, z) coordinate tuples representing the voxel path of the branch
 
     Returns:
-        average_branch_diameter: The average diameter of the branch in the same units as distance_array
+        mean_diameter (float): Mean diameter along the branch
+        median_diameter (float): Median diameter along the branch
+        diameter_profile (list): List of diameter values at each voxel in branch_coordinates
     """
 
     coordinate_array = np.array(branch_coordinates)
-    branch_array = np.zeros_like(distance_array)
-    branch_array[tuple(coordinate_array.T)] = 1
 
-    branch_radius_array = branch_array * distance_array
+    # Extract radius values at each coordinate along the branch path
+    radius_values = distance_array[tuple(coordinate_array.T)]
 
-    mean_diameter = branch_radius_array[branch_radius_array != 0].mean() * 2
-    median_diameter = np.median(branch_radius_array[branch_radius_array != 0]) * 2
+    # Diameter profile: diameter at each voxel (2 * radius)
+    diameter_profile = (radius_values * 2).tolist()
 
-    return mean_diameter, median_diameter
+    mean_diameter = np.mean(diameter_profile)
+    median_diameter = np.median(diameter_profile)
+
+    return mean_diameter, median_diameter, diameter_profile
 
 
 def compute_branch_diameters_of_graph(graph, distance_array):
@@ -75,6 +78,7 @@ def compute_branch_diameters_of_graph(graph, distance_array):
         updated_graph (networkx.Graph): A new graph object with diameter information encoded into edge data
                                         edge_data['mean_diameter_edt'] => avg diameter using edt distance transform
                                         edge_data['median_diameter_edt'] => median diameter using edt distance transform
+                                        edge_data['diameter_profile_edt'] => list of diameter values along the branch
     """
     if graph.is_directed():
         updated_graph = nx.DiGraph(graph)
@@ -83,11 +87,12 @@ def compute_branch_diameters_of_graph(graph, distance_array):
 
     for edge in list(updated_graph.edges()):
         voxel_path = updated_graph.edges[edge]["voxels"]
-        average_diameter, median_diameter = compute_average_diameter_of_branch(
+        average_diameter, median_diameter, diameter_profile = compute_average_diameter_of_branch(
             distance_array, voxel_path
         )
         updated_graph.edges[edge]["mean_diameter_edt"] = average_diameter
         updated_graph.edges[edge]["median_diameter_edt"] = median_diameter
+        updated_graph.edges[edge]["diameter_profile_edt"] = diameter_profile
 
     return updated_graph
 
@@ -138,7 +143,7 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
             average_diameter = graph.edges[edge]['mean_diameter_edt']
         elif distance_array is not None:
             voxel_path = graph.edges[edge]["voxels"]
-            average_diameter, median_diameter = compute_average_diameter_of_branch(distance_array, voxel_path)
+            average_diameter, median_diameter, diameter_profile = compute_average_diameter_of_branch(distance_array, voxel_path)
         else:
             raise ValueError(
                 "Unable to determine branch diameter without existing diameter information or distance array"

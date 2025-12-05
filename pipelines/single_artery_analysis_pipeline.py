@@ -25,7 +25,7 @@ from analysis import convert_graph_to_dataframes
 def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_depth_mm=None,
                           step_mm=None, remove_bypass=None, bypass_threshold=None,
                           output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv",
-                          config=None, config_path=None):
+                          config=None, config_path=None, distance_array=None):
     """
     Process a single continuous artery binary mask through the complete analysis pipeline.
 
@@ -45,6 +45,9 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         edges_csv (str): Output filename for edges CSV (default "edges.csv")
         config (dict, optional): Configuration dictionary with pipeline parameters
         config_path (str, optional): Path to JSON config file (if config not provided directly)
+        distance_array (ndarray, optional): Pre-computed distance transform array. If provided,
+                                           skips distance transform computation for efficiency.
+                                           Must match the shape of binary_mask.
 
     Returns:
         dict: Dictionary containing:
@@ -90,12 +93,17 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     print("ARTERY ANALYSIS PIPELINE - STARTED")
     print("=" * 80)
 
-    # Step 1: Create distance transform
-    print("\n[1/9] Creating distance transform from binary mask...")
-    step_start = time.time()
-    distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
-    processing_times['distance_transform'] = time.time() - step_start
-    print(f"      [OK] Distance transform computed in {processing_times['distance_transform']:.3f}s")
+    # Step 1: Create distance transform (or use pre-computed)
+    if distance_array is None:
+        print("\n[1/9] Creating distance transform from binary mask...")
+        step_start = time.time()
+        distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
+        processing_times['distance_transform'] = time.time() - step_start
+        print(f"      [OK] Distance transform computed in {processing_times['distance_transform']:.3f}s")
+    else:
+        print("\n[1/9] Using pre-computed distance transform (skipping computation)...")
+        processing_times['distance_transform'] = 0.0
+        print(f"      [OK] Pre-computed distance transform provided")
 
     # Step 2: Extract centerline skeleton
     print("\n[2/9] Extracting centerline skeleton using skeletonization...")

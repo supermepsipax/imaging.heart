@@ -7,13 +7,28 @@
 # ==============================================================================
 # INPUT/OUTPUT CONFIGURATION
 # ==============================================================================
+# Specify EITHER input_folder OR input_merged_file (not both)
 
-input_folder: "results/test_batch"
-# Directory containing processed pickle files (*_analysis.pkl) from the
-# batch artery analysis pipeline. Each pickle file contains the complete
-# graph, diameter profiles, spacing info, and metadata for one artery.
+# input_folder: "results/to_test"
+# Directory containing individual processed pickle files (*_analysis.pkl)
+# from the batch artery analysis pipeline. Each pickle file contains the
+# complete graph, diameter profiles, spacing info, and metadata for one artery.
+#
+# Use this option when analyzing unmerged individual files.
+# Comment out this line if using input_merged_file instead.
 
-output_folder: "results/statistics"
+input_merged_file: "results/to_test/to_test_merged.pkl.gz"
+# Path to a single merged/compressed file containing multiple artery analyses.
+# This file is created by the merge function at the end of batch processing
+# or using the compress_and_merge_results.py script.
+#
+# Supports: .pkl.gz (gzip), .pkl.bz2 (bz2), .pkl.xz (lzma)
+#
+# Use this option when analyzing merged compressed files for better performance
+# and easier data management. Uncomment this line and comment out input_folder
+# to use merged file mode.
+
+output_folder: "results/to_test"
 # Optional directory for saving statistical analysis results
 # Currently used for organizing output, can be used for future CSV exports
 # or aggregated statistics files

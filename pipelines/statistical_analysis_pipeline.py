@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from pathlib import Path
-from utilities import load_artery_analysis, load_config
+from utilities import load_artery_analysis, load_artery_analysis_compressed, load_config
 from analysis import (
     extract_main_branch_statistics,
     extract_all_branch_statistics,
@@ -11,16 +11,21 @@ from analysis import (
 from collections import defaultdict
 
 
-def analyze_artery_batch(input_folder=None, output_folder=None, config=None, config_path=None,
-                         diameter_method=None, verbose=None):
+def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folder=None,
+                         config=None, config_path=None, diameter_method=None, verbose=None):
     """
     Perform statistical analysis on a batch of artery analysis pickle files.
 
     This pipeline loads pre-processed artery analysis results and computes
     statistical metrics across multiple patients/samples.
 
+    Supports two input modes:
+    1. Individual files: Load from folder containing individual .pkl files
+    2. Merged file: Load from a single merged/compressed file (e.g., .pkl.gz)
+
     Args:
         input_folder (str, optional): Path to folder containing .pkl analysis files
+        input_merged_file (str, optional): Path to merged compressed file (e.g., results.pkl.gz)
         output_folder (str, optional): Path to folder where analysis results will be saved
         config (dict, optional): Configuration dictionary with analysis parameters
         config_path (str, optional): Path to config file (if config not provided directly)
@@ -29,6 +34,9 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
 
     Returns:
         dict: Summary statistics and results from the batch analysis
+
+    Note:
+        Only one of input_folder or input_merged_file should be provided.
     """
 
     if config is None and config_path is not None:
@@ -37,8 +45,11 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
     if config is None:
         config = {}
 
+    # Load input source from config if not provided
     if input_folder is None:
         input_folder = config.get('input_folder')
+    if input_merged_file is None:
+        input_merged_file = config.get('input_merged_file')
     if output_folder is None:
         output_folder = config.get('output_folder')
     if diameter_method is None:
@@ -46,45 +57,94 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
     if verbose is None:
         verbose = config.get('verbose', True)
 
-    if input_folder is None:
-        raise ValueError("input_folder must be provided either as a parameter or in the config file")
+    # Validate input source
+    if input_folder is None and input_merged_file is None:
+        raise ValueError("Either input_folder or input_merged_file must be provided")
+
+    if input_folder is not None and input_merged_file is not None:
+        raise ValueError("Cannot specify both input_folder and input_merged_file - use only one")
 
     if output_folder is not None:
         os.makedirs(output_folder, exist_ok=True)
 
-    input_path = Path(input_folder)
-    pkl_files = sorted(list(input_path.glob('*_analysis.pkl')))
+    # Determine input mode and load data
+    if input_merged_file is not None:
+        # Mode 1: Load from merged compressed file
+        print("=" * 80)
+        print("STATISTICAL ANALYSIS PIPELINE (MERGED FILE MODE)")
+        print("=" * 80)
+        print(f"Input merged file: {input_merged_file}")
+        if output_folder:
+            print(f"Output folder: {output_folder}")
+        print(f"\nConfiguration:")
+        print(f"  Diameter method: {diameter_method}")
+        print(f"  Verbose output: {verbose}")
+        print("=" * 80)
+        print("\nLoading merged file...")
 
-    if len(pkl_files) == 0:
-        print(f"No analysis pickle files found in {input_folder}")
-        return {'processed_count': 0, 'total_files': 0}
+        try:
+            merged_data = load_artery_analysis_compressed(input_merged_file)
 
-    print("=" * 80)
-    print("STATISTICAL ANALYSIS PIPELINE")
-    print("=" * 80)
-    print(f"Input folder: {input_folder}")
-    if output_folder:
-        print(f"Output folder: {output_folder}")
-    print(f"Found {len(pkl_files)} analysis files to process")
-    print(f"\nConfiguration:")
-    print(f"  Diameter method: {diameter_method}")
-    print(f"  Verbose output: {verbose}")
-    print("=" * 80)
+            # Convert merged data to list of (identifier, data) tuples
+            analysis_items = []
+            for case_name, vessels in merged_data.items():
+                for vessel_type, vessel_data in vessels.items():
+                    identifier = f"{case_name}_{vessel_type}"
+                    analysis_items.append((identifier, vessel_data))
 
+            print(f"✓ Loaded {len(analysis_items)} vessel analyses from merged file")
+
+        except Exception as e:
+            print(f"✗ Failed to load merged file: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'processed_count': 0, 'failed_count': 0, 'total_files': 0}
+
+    else:
+        # Mode 2: Load from individual files in folder
+        input_path = Path(input_folder)
+        pkl_files = sorted(list(input_path.glob('*_analysis.pkl')))
+
+        if len(pkl_files) == 0:
+            print(f"No analysis pickle files found in {input_folder}")
+            return {'processed_count': 0, 'total_files': 0}
+
+        print("=" * 80)
+        print("STATISTICAL ANALYSIS PIPELINE (FOLDER MODE)")
+        print("=" * 80)
+        print(f"Input folder: {input_folder}")
+        if output_folder:
+            print(f"Output folder: {output_folder}")
+        print(f"Found {len(pkl_files)} analysis files to process")
+        print(f"\nConfiguration:")
+        print(f"  Diameter method: {diameter_method}")
+        print(f"  Verbose output: {verbose}")
+        print("=" * 80)
+
+        # Convert pkl_files to list of (identifier, filepath) tuples
+        analysis_items = [(pkl_file.stem, str(pkl_file)) for pkl_file in pkl_files]
+
+    # Unified processing for both modes
     results_summary = {
         'processed_count': 0,
         'failed_count': 0,
-        'total_files': len(pkl_files),
+        'total_files': len(analysis_items),
         'failed_files': []
     }
 
-    for file_idx, pkl_file in enumerate(pkl_files, 1):
+    for file_idx, (identifier, item) in enumerate(analysis_items, 1):
         print(f"\n{'=' * 80}")
-        print(f"Processing file {file_idx}/{len(pkl_files)}: {pkl_file.name}")
+        print(f"Processing {file_idx}/{len(analysis_items)}: {identifier}")
         print(f"{'=' * 80}")
 
         try:
-            data = load_artery_analysis(str(pkl_file))
+            # Load data based on mode
+            if input_merged_file is not None:
+                # Item is already the loaded data dict
+                data = item
+            else:
+                # Item is a filepath, load it
+                data = load_artery_analysis(item)
 
             # ========================================================================
             # AVAILABLE DATA IN THE LOADED DICTIONARY
@@ -290,13 +350,13 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
 
 
             results_summary['processed_count'] += 1
-            print(f"\n  [OK] File processed successfully")
+            print(f"\n  [OK] Analysis processed successfully")
 
         except Exception as e:
-            print(f"\n  [ERROR] Failed to process {pkl_file.name}")
+            print(f"\n  [ERROR] Failed to process {identifier}")
             print(f"          Error: {str(e)}")
             results_summary['failed_files'].append({
-                'filename': pkl_file.name,
+                'identifier': identifier,
                 'error': str(e)
             })
             results_summary['failed_count'] += 1
@@ -308,9 +368,9 @@ def analyze_artery_batch(input_folder=None, output_folder=None, config=None, con
     print(f"Files failed: {results_summary['failed_count']}/{results_summary['total_files']}")
 
     if results_summary['failed_files']:
-        print("\nFailed files:")
+        print("\nFailed analyses:")
         for failed in results_summary['failed_files']:
-            print(f"  - {failed['filename']}: {failed['error']}")
+            print(f"  - {failed['identifier']}: {failed['error']}")
 
     print("=" * 80)
 
@@ -328,7 +388,7 @@ if __name__ == "__main__":
     print(f"Files processed: {results['processed_count']}/{results['total_files']}")
     print(f"Files failed: {results['failed_count']}/{results['total_files']}")
     if results['failed_files']:
-        print(f"\nFailed files:")
+        print(f"\nFailed analyses:")
         for failed in results['failed_files']:
-            print(f"  - {failed['filename']}: {failed['error']}")
+            print(f"  - {failed['identifier']}: {failed['error']}")
     print(f"{'=' * 80}")

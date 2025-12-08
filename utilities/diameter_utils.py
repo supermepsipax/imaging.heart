@@ -108,9 +108,11 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
 
     Algorithm:
     1. Finds all edges connected to endpoint nodes (degree = 1)
-    2. Retrieves diameter information from edge attributes or computes from distance array
-    3. Identifies the edge with the largest mean diameter
-    4. Returns the endpoint node of that edge as the origin
+    2. Special case: For single-branch graphs (2 endpoints, 1 edge), uses z-coordinate
+       (higher z = origin) instead of diameter
+    3. Retrieves diameter information from edge attributes or computes from distance array
+    4. Identifies the edge with the largest mean diameter
+    5. Returns the endpoint node of that edge as the origin
 
     Args:
         graph (networkx.Graph): Vessel graph with diameter information in edge attributes
@@ -127,12 +129,27 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
         - Checks for diameter attributes in order: 'mean_diameter_slicing', 'mean_diameter_edt'
         - If neither exists, computes from distance_array if provided
         - Assumes the largest diameter branch is connected to the vessel origin
+        - For single-branch cases, the node with higher z-coordinate is selected as origin
     """
+    # Get all endpoint nodes (degree = 1)
+    endpoint_nodes = [node for node in graph.nodes() if graph.degree(node) == 1]
+
+    # Special case: single branch with two endpoints
+    # Use z-coordinate comparison instead of diameter (higher z = origin)
+    # This commonly occurs in RCA where a single branch might be mislabeled
+    if len(endpoint_nodes) == 2 and graph.number_of_edges() == 1:
+        node1, node2 = endpoint_nodes
+        # Compare z-coordinates (dim_2, index 2)
+        if node1[2] > node2[2]:
+            return node1
+        else:
+            return node2
+
+    # Normal case: use diameter-based approach
     largest_diameter = 0
     largest_edge = None
 
-    endpoint_edges = [edge for node in graph.nodes()
-              if graph.degree(node) == 1
+    endpoint_edges = [edge for node in endpoint_nodes
               for edge in graph.edges(node)]
 
 

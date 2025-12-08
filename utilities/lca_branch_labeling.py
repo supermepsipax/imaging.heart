@@ -69,27 +69,30 @@ def find_main_trunk_endpoint(graph, trunk_label):
 
 def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
     """
-    Detects if LCA has an anatomical trifurcation by checking if EITHER edge "11" or "12"
-    is very short and quickly bifurcates (indicating Left Main splits into 3 branches nearly simultaneously).
+    Detects if LCA has an anatomical trifurcation by checking for either:
+    1. True trifurcation: Single node branches into 3 edges ("11", "12", "13")
+    2. Pseudo-trifurcation: Edge "11" or "12" is very short and quickly bifurcates
+       (indicating Left Main splits into 3 branches nearly simultaneously)
 
-    In the graph structure, a trifurcation can appear as either:
-    - Edge "1" → short "11" → "111", "112" + edge "12" (if "11" is short)
-    - Edge "1" → edge "11" + short "12" → "122", "123" (if "12" is short)
+    In the graph structure, a trifurcation can appear as:
+    - True: Edge "1" → edges "11", "12", "13" (all from same node)
+    - Pseudo: Edge "1" → short "11" → "111", "112" + edge "12" (if "11" is short)
+    - Pseudo: Edge "1" → edge "11" + short "12" → "122", "123" (if "12" is short)
 
     Args:
         graph (nx.DiGraph): LCA graph with edge_position labels
-        trifurcation_threshold_mm (float): Max length of edge to be considered trifurcation
+        trifurcation_threshold_mm (float): Max length of edge to be considered pseudo-trifurcation
 
     Returns:
         dict: {
             'is_trifurcation': bool,
+            'trifurcation_type': 'true' | 'pseudo' | None,
             'left_main_edge': edge with label "1",
-            'short_segment': the short edge ("11" or "12"),
-            'short_segment_label': "11" or "12",
+            'short_segment': the short edge ("11" or "12") for pseudo-trifurcation,
+            'short_segment_label': "11" or "12" for pseudo-trifurcation,
             'primary_branches': list of 3 edge_position labels representing main branches
         }
     """
-    # Find edge "1" (left main)
     left_main_edge = None
     for edge in graph.edges():
         if graph.edges[edge].get('edge_position') == '1':
@@ -97,13 +100,14 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
             break
 
     if left_main_edge is None:
-        return {'is_trifurcation': False, 'left_main_edge': None, 'primary_branches': []}
+        return {'is_trifurcation': False, 'trifurcation_type': None, 'left_main_edge': None, 'primary_branches': []}
 
-    # Find edges "11" and "12"
+    # Find edges "11", "12", and "13"
     edge_11 = None
     edge_11_length = None
     edge_12 = None
     edge_12_length = None
+    edge_13 = None
 
     for edge in graph.edges():
         edge_pos = graph.edges[edge].get('edge_position')
@@ -113,8 +117,22 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
         elif edge_pos == '12':
             edge_12 = edge
             edge_12_length = graph.edges[edge].get('path_length_mm', 0)
+        elif edge_pos == '13':
+            edge_13 = edge
 
-    # Check if "11" is short and bifurcates → trifurcation pattern "111", "112", "12"
+    # Check for TRUE trifurcation: all three edges "11", "12", "13" exist
+    if edge_11 is not None and edge_12 is not None and edge_13 is not None:
+        return {
+            'is_trifurcation': True,
+            'trifurcation_type': 'true',
+            'left_main_edge': left_main_edge,
+            'short_segment': None,
+            'short_segment_label': None,
+            'short_segment_length_mm': None,
+            'primary_branches': ['11', '12', '13']
+        }
+
+    # Check for PSEUDO-trifurcation: "11" is short and bifurcates → pattern "111", "112", "12"
     if edge_11 is not None and edge_11_length < trifurcation_threshold_mm:
         has_111 = any(graph.edges[e].get('edge_position') == '111' for e in graph.edges())
         has_112 = any(graph.edges[e].get('edge_position') == '112' for e in graph.edges())
@@ -123,6 +141,7 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
         if has_111 and has_112 and has_12:
             return {
                 'is_trifurcation': True,
+                'trifurcation_type': 'pseudo',
                 'left_main_edge': left_main_edge,
                 'short_segment': edge_11,
                 'short_segment_label': '11',
@@ -130,7 +149,7 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
                 'primary_branches': ['111', '112', '12']
             }
 
-    # Check if "12" is short and bifurcates → trifurcation pattern "11", "122", "123"
+    # Check for PSEUDO-trifurcation: "12" is short and bifurcates → pattern "11", "122", "123"
     if edge_12 is not None and edge_12_length < trifurcation_threshold_mm:
         has_11 = edge_11 is not None
         has_122 = any(graph.edges[e].get('edge_position') == '122' for e in graph.edges())
@@ -139,6 +158,7 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
         if has_11 and has_122 and has_123:
             return {
                 'is_trifurcation': True,
+                'trifurcation_type': 'pseudo',
                 'left_main_edge': left_main_edge,
                 'short_segment': edge_12,
                 'short_segment_label': '12',
@@ -146,7 +166,6 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
                 'primary_branches': ['11', '122', '123']
             }
 
-    # No trifurcation: two main branches are "11" and "12"
     primary_branches = []
     if edge_11 is not None:
         primary_branches.append('11')
@@ -155,6 +174,7 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
 
     return {
         'is_trifurcation': False,
+        'trifurcation_type': None,
         'left_main_edge': left_main_edge,
         'primary_branches': primary_branches
     }
@@ -179,12 +199,12 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
     if len(branch_labels) != 3:
         return None
 
-    # Get endpoints for each of the three branches
+    origin_node = next(n for n, d in graph.in_degree() if d == 0)
+
     endpoints = {}
     for label in branch_labels:
         endpoint = find_main_trunk_endpoint(graph, label)
         if endpoint is None:
-            # If we can't find endpoint, use the end of the first edge with this label
             for edge in graph.edges():
                 if graph.edges[edge].get('edge_position') == label:
                     endpoint = edge[1]
@@ -193,40 +213,51 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
             endpoints[label] = endpoint
 
     if len(endpoints) != 3:
-        # Can't determine, return first label
         return branch_labels[0]
 
     # Compute direction vectors from bifurcation to each endpoint
     directions = {}
+    directions['origin'] = compute_direction_vector(origin_node, bifurcation_node, spacing_info)
     for label, endpoint in endpoints.items():
         direction = compute_direction_vector(bifurcation_node, endpoint, spacing_info)
         directions[label] = direction
 
+
     # For each branch, compute the angle between the other two branches
     # The central branch (Ramus) is the one where the other two branches form the largest angle
     max_angle_between_others = -1
+    highest_dot_product = 0
+    central_branch = ''
+
     central_branch = None
 
-    for i, label_i in enumerate(branch_labels):
-        # Get the other two branches
-        other_labels = [branch_labels[j] for j in range(3) if j != i]
-
-        if label_i not in directions or other_labels[0] not in directions or other_labels[1] not in directions:
-            continue
-
-        # Compute angle between the other two branches
-        dir_1 = directions[other_labels[0]]
-        dir_2 = directions[other_labels[1]]
-
-        # Angle between two vectors using dot product
-        dot_product = np.dot(dir_1, dir_2)
-        dot_product = np.clip(dot_product, -1.0, 1.0)  # Handle numerical errors
-        angle = np.arccos(dot_product)  # in radians
-
-        if angle > max_angle_between_others:
-            max_angle_between_others = angle
-            central_branch = label_i
-
+    for label in branch_labels:
+        dot_product = np.dot(directions['origin'], directions[label])
+        if dot_product > highest_dot_product:
+            highest_dot_product = dot_product
+            central_branch = label
+    #
+    # for i, label_i in enumerate(branch_labels):
+    #     # Get the other two branches
+    #     other_labels = [branch_labels[j] for j in range(3) if j != i]
+    #
+    #     if label_i not in directions or other_labels[0] not in directions or other_labels[1] not in directions:
+    #         continue
+    #
+    #     # Compute angle between the other two branches
+    #     dir_1 = directions[other_labels[0]]
+    #     dir_2 = directions[other_labels[1]]
+    #
+    #     # Angle between two vectors using dot product
+    #     dot_product = np.dot(dir_1, dir_2)
+    #     dot_product = np.clip(dot_product, -1.0, 1.0)  # Handle numerical errors
+    #     angle = np.arccos(dot_product)  # in radians
+    #
+    #     if angle > max_angle_between_others:
+    #         max_angle_between_others = angle
+    #         central_branch = label_i
+    #
+    # return central_branch if central_branch is not None else branch_labels[0]
     return central_branch if central_branch is not None else branch_labels[0]
 
 
@@ -408,7 +439,6 @@ def is_side_branch(edge_position, parent_edge_position):
     if len(edge_position) != len(parent_edge_position) + 1:
         return False
 
-    # Get the last digit of both
     last_digit_parent = parent_edge_position[-1] if parent_edge_position else '0'
     last_digit_child = edge_position[-1]
 
@@ -465,8 +495,14 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
     main_branch_labels = {}  # Will map anatomical name to edge_position
 
     if trifurcation_info['is_trifurcation']:
-        print(f"[LCA Labeling] Trifurcation detected")
-        print(f"               Short segment '{trifurcation_info['short_segment_label']}': {trifurcation_info['short_segment_length_mm']:.1f}mm")
+        trifurcation_type = trifurcation_info['trifurcation_type']
+
+        if trifurcation_type == 'true':
+            print(f"[LCA Labeling] TRUE Trifurcation detected")
+            print(f"               Three branches originate from same node: {trifurcation_info['primary_branches']}")
+        else:  # pseudo
+            print(f"[LCA Labeling] PSEUDO-Trifurcation detected")
+            print(f"               Short segment '{trifurcation_info['short_segment_label']}': {trifurcation_info['short_segment_length_mm']:.1f}mm")
 
         primary_branches = trifurcation_info['primary_branches']
         ramus_current_label = identify_central_branch_for_ramus(updated_graph, primary_branches, bifurcation_node, spacing_info)
@@ -546,8 +582,10 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
     }
 
     if trifurcation_info['is_trifurcation']:
-        labeling_result['short_segment_length_mm'] = trifurcation_info['short_segment_length_mm']
-        labeling_result['short_segment_label'] = trifurcation_info['short_segment_label']
+        labeling_result['trifurcation_type'] = trifurcation_info['trifurcation_type']
+        if trifurcation_info['trifurcation_type'] == 'pseudo':
+            labeling_result['short_segment_length_mm'] = trifurcation_info['short_segment_length_mm']
+            labeling_result['short_segment_label'] = trifurcation_info['short_segment_label']
 
     for edge in updated_graph.edges():
         edge_pos = updated_graph.edges[edge].get('edge_position', '')
@@ -627,7 +665,11 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
     # Print summary
     print(f"\n[LCA Branch Labeling] Type: {labeling_result['type'].upper()}")
     if labeling_result['type'] == 'trifurcation':
-        print(f"                      Short segment '{labeling_result['short_segment_label']}': {labeling_result['short_segment_length_mm']:.1f}mm")
+        if labeling_result.get('trifurcation_type') == 'true':
+            print(f"                      Trifurcation type: TRUE (3 branches from same node)")
+        elif labeling_result.get('trifurcation_type') == 'pseudo':
+            print(f"                      Trifurcation type: PSEUDO")
+            print(f"                      Short segment '{labeling_result['short_segment_label']}': {labeling_result['short_segment_length_mm']:.1f}mm")
 
     print(f"                      Main branch assignments (spatially validated):")
     for label, edge_pos in labeling_result['labels'].items():

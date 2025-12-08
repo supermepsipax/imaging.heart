@@ -804,4 +804,158 @@ def traverse_graph_and_compute_angles(directed_graph, spacing_info,
                 queue.append((distal_edge[1], distal_label))
                 queue.append((side_edge[1], side_label))
 
+        elif out_degree == 3 and in_degree == 1:
+            # Trifurcation: 3 child branches
+            # Strategy: Use weighted scoring (same as bifurcations) to determine continuation
+            # Scores based on: angle alignment, diameter, and path length
+            # Highest score = continuation branch
+
+            print(f"      [INFO] Trifurcation detected at node {node}")
+
+            # Get parent edge direction
+            in_edges_list = list(updated_graph.in_edges(node, data=True))
+            parent_edge = in_edges_list[0]
+            parent_voxels = list(parent_edge[2]['voxels'])
+
+            # Orient parent voxels to end at trifurcation node
+            if parent_voxels[0] == node:
+                parent_voxels = list(reversed(parent_voxels))
+
+            # Calculate parent direction (from last few voxels approaching the node)
+            if len(parent_voxels) >= 2:
+                parent_dir = np.array(parent_voxels[-1]) - np.array(parent_voxels[-2])
+                parent_dir = parent_dir * np.array(spacing_info)
+                parent_dir = parent_dir / np.linalg.norm(parent_dir)
+            else:
+                parent_dir = None
+
+            # For each child, calculate angle, diameter, and path length
+            child_info = []
+            eps = 1e-6
+
+            for edge in out_edges:
+                child_voxels = list(edge[2]['voxels'])
+
+                # Orient child voxels to start at trifurcation node
+                if child_voxels[-1] == node:
+                    child_voxels = list(reversed(child_voxels))
+
+                # Calculate child direction and angle with parent
+                if len(child_voxels) >= 2:
+                    child_dir = np.array(child_voxels[1]) - np.array(child_voxels[0])
+                    child_dir = child_dir * np.array(spacing_info)
+                    child_dir = child_dir / np.linalg.norm(child_dir)
+                else:
+                    child_dir = None
+
+                # Calculate angle with parent in degrees
+                if parent_dir is not None and child_dir is not None:
+                    cos_angle = np.dot(parent_dir, child_dir)
+                    angle_rad = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+                    angle_deg = np.degrees(angle_rad)
+                else:
+                    angle_deg = 90.0  # Fallback to perpendicular
+
+                # Get diameter (prefer slicing method)
+                if 'mean_diameter_slicing' in edge[2]:
+                    diameter = edge[2]['mean_diameter_slicing']
+                elif 'mean_diameter_edt' in edge[2]:
+                    diameter = edge[2]['mean_diameter_edt']
+                else:
+                    diameter = 1.0  # Fallback
+
+                # Get total path length (edge + downstream)
+                edge_length = edge[2].get('path_length_mm', 0)
+                downstream_length = compute_max_path_length_to_endpoint(updated_graph, edge[1])
+                total_path_length = edge_length + downstream_length
+
+                child_info.append({
+                    'edge': edge,
+                    'angle_deg': angle_deg,
+                    'diameter': diameter,
+                    'path_length': total_path_length
+                })
+
+            # Compute normalized scores for each metric (across all 3 children)
+
+            # Angle scoring: distance from 90° (perpendicular)
+            # 180° (straight) → score = 1.0, 90° (perpendicular) → score = 0.0
+            for child in child_info:
+                child['angle_score'] = abs(child['angle_deg'] - 90.0) / 90.0
+
+            # Diameter scoring: normalize to [0, 1] across all children
+            diameters = [c['diameter'] for c in child_info]
+            min_d, max_d = min(diameters), max(diameters)
+            if abs(max_d - min_d) < eps:
+                for child in child_info:
+                    child['diameter_score'] = 0.5  # All equal
+            else:
+                for child in child_info:
+                    child['diameter_score'] = (child['diameter'] - min_d) / (max_d - min_d)
+
+            # Path length scoring: normalize to [0, 1] across all children
+            path_lengths = [c['path_length'] for c in child_info]
+            min_p, max_p = min(path_lengths), max(path_lengths)
+            if abs(max_p - min_p) < eps:
+                for child in child_info:
+                    child['path_score'] = 0.5  # All equal
+            else:
+                for child in child_info:
+                    child['path_score'] = (child['path_length'] - min_p) / (max_p - min_p)
+
+            # Compute weighted total scores
+            for child in child_info:
+                child['total_score'] = (
+                    angle_weight * child['angle_score'] +
+                    diameter_weight * child['diameter_score'] +
+                    path_length_weight * child['path_score']
+                )
+
+            # Sort by total score (highest first = continuation branch)
+            child_info.sort(key=lambda x: x['total_score'], reverse=True)
+
+            # Highest score is the continuation
+            central_child = child_info[0]
+            other_children = child_info[1:]
+
+            # Assign labels following the same pattern as bifurcations
+            if parent_label == "":
+                # First level trifurcation from origin (rare but possible)
+                central_label = "11"
+                second_label = "12"
+                third_label = "13"
+            else:
+                last_digit = int(parent_label[-1])
+                if last_digit == 1:
+                    central_label = parent_label + "1"
+                    second_label = parent_label + "2"
+                    third_label = parent_label + "3"
+                else:
+                    central_label = parent_label + str(last_digit)
+                    second_label = parent_label + str(last_digit + 1)
+                    third_label = parent_label + str(last_digit + 2)
+
+            # Apply labels to edges
+            updated_graph.edges[(central_child['edge'][0], central_child['edge'][1])]['edge_position'] = central_label
+            updated_graph.edges[(other_children[0]['edge'][0], other_children[0]['edge'][1])]['edge_position'] = second_label
+            updated_graph.edges[(other_children[1]['edge'][0], other_children[1]['edge'][1])]['edge_position'] = third_label
+
+            # Print scoring details
+            print(f"              Continuation branch: {central_label}")
+            print(f"                Score: {central_child['total_score']:.3f} (angle={central_child['angle_score']:.3f}, "
+                  f"diam={central_child['diameter_score']:.3f}, path={central_child['path_score']:.3f})")
+            print(f"                Path: {central_child['path_length']:.1f}mm, Diameter: {central_child['diameter']:.2f}mm, "
+                  f"Angle: {central_child['angle_deg']:.1f}°")
+            print(f"              Side branch 1: {second_label}")
+            print(f"                Score: {other_children[0]['total_score']:.3f} (angle={other_children[0]['angle_score']:.3f}, "
+                  f"diam={other_children[0]['diameter_score']:.3f}, path={other_children[0]['path_score']:.3f})")
+            print(f"              Side branch 2: {third_label}")
+            print(f"                Score: {other_children[1]['total_score']:.3f} (angle={other_children[1]['angle_score']:.3f}, "
+                  f"diam={other_children[1]['diameter_score']:.3f}, path={other_children[1]['path_score']:.3f})")
+
+            # Add to queue for further traversal
+            queue.append((central_child['edge'][1], central_label))
+            queue.append((other_children[0]['edge'][1], second_label))
+            queue.append((other_children[1]['edge'][1], third_label))
+
     return updated_graph

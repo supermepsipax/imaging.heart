@@ -8,6 +8,7 @@ from utilities import (
     skeleton_to_sparse_graph_robust,
     remove_sharp_bend_bifurcations,
     remove_bypass_edges,
+    prune_small_y_branches_iterative,
     create_distance_transform_from_mask,
     compute_branch_diameters_of_graph,
     compute_branch_diameters_of_graph_slicing,
@@ -24,6 +25,10 @@ from analysis import convert_graph_to_dataframes
 
 def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_depth_mm=None,
                           step_mm=None, remove_bypass=None, bypass_threshold=None,
+                          prune_small_y_branches=None, max_y_branch_length_voxels=None,
+                          max_y_branch_length_mm=None,
+                          min_branch_length_voxels=None, min_branch_length_mm=None,
+                          max_recursion_depth=None,
                           angle_weight=None, diameter_weight=None, path_length_weight=None,
                           output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv",
                           config=None, config_path=None, distance_array=None):
@@ -41,6 +46,12 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         step_mm (float, optional): Step size for depth increments in angle computation (default 0.5 mm)
         remove_bypass (bool, optional): Whether to remove bypass edges at high-degree nodes (default True)
         bypass_threshold (float, optional): Distance threshold in voxels for bypass detection (default 2.0)
+        prune_small_y_branches (bool, optional): Whether to remove small Y-shaped spurious branches (default True)
+        max_y_branch_length_voxels (int, optional): Maximum voxel length for Y-branch pruning (default 3)
+        max_y_branch_length_mm (float, optional): Maximum physical length (mm) for Y-branch pruning (default None)
+        min_branch_length_voxels (int, optional): Minimum path length in voxels for sparse graph construction (default None)
+        min_branch_length_mm (float, optional): Minimum path length in mm for sparse graph construction (default None)
+        max_recursion_depth (int, optional): Maximum number of recursive passes for removing short branches (default 5)
         angle_weight (float, optional): Weight for angle scoring in branch designation (default 0.15)
         diameter_weight (float, optional): Weight for diameter scoring in branch designation (default 0.25)
         path_length_weight (float, optional): Weight for path length scoring in branch designation (default 0.6)
@@ -77,6 +88,18 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
             remove_bypass = config.get('remove_bypass', True)
         if bypass_threshold is None:
             bypass_threshold = config.get('bypass_threshold', 2.0)
+        if prune_small_y_branches is None:
+            prune_small_y_branches = config.get('prune_small_y_branches', True)
+        if max_y_branch_length_voxels is None:
+            max_y_branch_length_voxels = config.get('max_y_branch_length_voxels', 3)
+        if max_y_branch_length_mm is None:
+            max_y_branch_length_mm = config.get('max_y_branch_length_mm')
+        if min_branch_length_voxels is None:
+            min_branch_length_voxels = config.get('min_branch_length_voxels')
+        if min_branch_length_mm is None:
+            min_branch_length_mm = config.get('min_branch_length_mm')
+        if max_recursion_depth is None:
+            max_recursion_depth = config.get('max_recursion_depth', 5)
         if angle_weight is None:
             angle_weight = config.get('angle_weight', 0.15)
         if diameter_weight is None:
@@ -95,6 +118,11 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         remove_bypass = True
     if bypass_threshold is None:
         bypass_threshold = 2.0
+    if prune_small_y_branches is None:
+        prune_small_y_branches = True
+    if max_y_branch_length_voxels is None:
+        max_y_branch_length_voxels = 3
+    # max_y_branch_length_mm can remain None (optional)
     if angle_weight is None:
         angle_weight = 0.15
     if diameter_weight is None:
@@ -153,7 +181,13 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     # Step 5: Create sparse skeleton graph
     print("\n[5/8] Constructing sparse skeleton graph from centerline...")
     step_start = time.time()
-    sparse_skeleton_graph = skeleton_to_sparse_graph_robust(skeleton_binary_mask, bifurcation_points, endpoints)
+    sparse_skeleton_graph = skeleton_to_sparse_graph_robust(
+        skeleton_binary_mask, bifurcation_points, endpoints,
+        min_branch_length_voxels=min_branch_length_voxels,
+        min_branch_length_mm=min_branch_length_mm,
+        spacing=spacing_info,
+        max_recursion_depth=max_recursion_depth
+    )
     print(f"      --> Graph has {sparse_skeleton_graph.number_of_nodes()} nodes")
     print(f"      --> Graph has {sparse_skeleton_graph.number_of_edges()} edges")
 
@@ -180,8 +214,50 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
         print(f"      --> {removed_edges} edges removed")
         print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
+
+        # Check for graph fragmentation after bypass removal
+        num_components = nx.number_connected_components(sparse_skeleton_graph)
+        if num_components > 1:
+            print(f"      [WARNING] Bypass removal fragmented graph into {num_components} disconnected components!")
+            components = list(nx.connected_components(sparse_skeleton_graph))
+            for i, component in enumerate(components):
+                print(f"                Component {i+1}: {len(component)} nodes")
+
         processing_times['bypass_edge_removal'] = time.time() - step_start
         print(f"      [OK] Bypass edges processed in {processing_times['bypass_edge_removal']:.3f}s")
+
+    # Optional: Prune small Y-branches
+    if prune_small_y_branches:
+        print("\n[5c/8] Pruning small Y-shaped spurious branches...")
+        step_start = time.time()
+        initial_node_count = sparse_skeleton_graph.number_of_nodes()
+        initial_edge_count = sparse_skeleton_graph.number_of_edges()
+
+        # Build threshold description
+        threshold_desc = []
+        if max_y_branch_length_voxels is not None:
+            threshold_desc.append(f"≤{max_y_branch_length_voxels} voxels")
+        if max_y_branch_length_mm is not None:
+            threshold_desc.append(f"≤{max_y_branch_length_mm}mm")
+        threshold_str = " AND ".join(threshold_desc)
+
+        print(f"      --> Threshold: {threshold_str}")
+
+        sparse_skeleton_graph, y_branches_removed = prune_small_y_branches_iterative(
+            sparse_skeleton_graph,
+            max_branch_length_voxels=max_y_branch_length_voxels,
+            max_branch_length_mm=max_y_branch_length_mm,
+            max_iterations=5
+        )
+
+        removed_nodes = initial_node_count - sparse_skeleton_graph.number_of_nodes()
+        removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
+
+        print(f"      --> {y_branches_removed} Y-branch structures removed")
+        print(f"      --> {removed_edges} edges and {removed_nodes} nodes removed")
+        print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
+        processing_times['y_branch_pruning'] = time.time() - step_start
+        print(f"      [OK] Y-branch pruning completed in {processing_times['y_branch_pruning']:.3f}s")
 
     # Step 6: Compute branch lengths and diameter profiles
     print("\n[6/8] Computing branch metrics (lengths and diameter profiles)...")

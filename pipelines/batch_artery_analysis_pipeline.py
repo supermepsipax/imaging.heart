@@ -15,6 +15,10 @@ from utilities import (
     annotate_lca_graph_with_branch_labels,
     annotate_rca_graph_with_branch_labels,
     save_artery_analysis,
+    VesselErrorTracker,
+    BatchErrorLogger,
+    validate_anatomical_labels,
+    validate_lca_branch_length_ratio,
 )
 from pipelines import process_single_artery
 from analysis import convert_graph_to_dataframes
@@ -66,6 +70,15 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     step_mm = config.get('step_mm', 0.5)
     remove_bypass = config.get('remove_bypass', True)
     bypass_threshold = config.get('bypass_threshold', 2.0)
+    prune_small_y_branches = config.get('prune_small_y_branches', True)
+    max_y_branch_length_voxels = config.get('max_y_branch_length_voxels', 3)
+    max_y_branch_length_mm = config.get('max_y_branch_length_mm')
+    min_branch_length_voxels = config.get('min_branch_length_voxels')
+    min_branch_length_mm = config.get('min_branch_length_mm')
+    max_recursion_depth = config.get('max_recursion_depth', 5)
+    lca_trifurcation_threshold_mm = config.get('lca_trifurcation_threshold_mm', 5.0)
+    max_unlabeled_edges = config.get('max_unlabeled_edges', 1)
+    min_lca_branch_length_ratio = config.get('min_lca_branch_length_ratio', 0.1)
     angle_weight = config.get('angle_weight', 0.15)
     diameter_weight = config.get('diameter_weight', 0.25)
     path_length_weight = config.get('path_length_weight', 0.6)
@@ -73,11 +86,52 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     os.makedirs(output_folder, exist_ok=True)
 
     input_path = Path(input_folder)
+    output_path = Path(output_folder)
     nrrd_files = sorted(list(input_path.glob('*.nrrd')))
 
     if len(nrrd_files) == 0:
         print(f"No .nrrd files found in {input_folder}")
         return {'success_count': 0, 'failure_count': 0, 'total_files': 0}
+
+    # Check for already-processed files in output folder
+    already_processed = []
+    for nrrd_file in nrrd_files:
+        file_basename = nrrd_file.stem
+        lca_pkl = output_path / f"{file_basename}_LCA_analysis.pkl"
+        rca_pkl = output_path / f"{file_basename}_RCA_analysis.pkl"
+
+        # Check if both LCA and RCA analysis files exist (unmerged individual files)
+        if lca_pkl.exists() and rca_pkl.exists():
+            already_processed.append(nrrd_file.name)
+
+    # Prompt user if already-processed files found
+    if already_processed:
+        print("=" * 80)
+        print(f"FOUND {len(already_processed)} ALREADY-PROCESSED FILES")
+        print("=" * 80)
+        print("\nThe following files have both LCA and RCA analysis results in the output folder:")
+        for filename in already_processed:
+            print(f"  • {filename}")
+        print()
+
+        # Prompt user
+        while True:
+            response = input("Do you want to [S]kip these files or [R]eprocess them? (S/R): ").strip().upper()
+            if response in ['S', 'SKIP']:
+                # Filter out already-processed files
+                nrrd_files = [f for f in nrrd_files if f.name not in already_processed]
+                print(f"\n✓ Skipping {len(already_processed)} already-processed files")
+                print(f"  Will process {len(nrrd_files)} remaining files\n")
+                break
+            elif response in ['R', 'REPROCESS']:
+                print(f"\n✓ Reprocessing all {len(already_processed)} files\n")
+                break
+            else:
+                print("Invalid input. Please enter 'S' to skip or 'R' to reprocess.")
+
+        if len(nrrd_files) == 0:
+            print("No files left to process.")
+            return {'success_count': 0, 'failure_count': 0, 'total_files': 0, 'skipped_count': len(already_processed)}
 
     print("=" * 80)
     print(f"BATCH ARTERY ANALYSIS PIPELINE")
@@ -91,6 +145,22 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     print(f"  Remove bypass edges: {remove_bypass}")
     if remove_bypass:
         print(f"  Bypass threshold: {bypass_threshold} voxels")
+    print(f"  Prune small Y-branches: {prune_small_y_branches}")
+    if prune_small_y_branches:
+        if max_y_branch_length_voxels is not None:
+            print(f"  Y-branch voxel threshold: {max_y_branch_length_voxels} voxels")
+        if max_y_branch_length_mm is not None:
+            print(f"  Y-branch mm threshold: {max_y_branch_length_mm} mm")
+    if min_branch_length_voxels is not None or min_branch_length_mm is not None:
+        print(f"  Filter short branches during graph construction:")
+        if min_branch_length_voxels is not None:
+            print(f"    Min branch length: {min_branch_length_voxels} voxels")
+        if min_branch_length_mm is not None:
+            print(f"    Min branch length: {min_branch_length_mm} mm")
+        print(f"    Max recursion depth: {max_recursion_depth}")
+    print(f"  LCA trifurcation threshold: {lca_trifurcation_threshold_mm} mm")
+    print(f"  Max unlabeled edges (validation): {max_unlabeled_edges}")
+    print(f"  Min LCA branch length ratio (validation): {min_lca_branch_length_ratio}")
     print(f"  Branch designation weights: angle={angle_weight}, diameter={diameter_weight}, path_length={path_length_weight}")
     print(f"  Visualize results: {visualize}")
     print("=" * 80)
@@ -100,10 +170,14 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
         'success_count': 0,
         'failure_count': 0,
         'total_files': len(nrrd_files),
+        'skipped_count': len(already_processed) if already_processed else 0,
         'processed_files': [],
         'failed_files': [],
         'total_arteries_processed': 0,
     }
+
+    # Create error logger for batch
+    error_logger = BatchErrorLogger(output_folder, config)
 
     for file_idx, nrrd_file in enumerate(nrrd_files, 1):
         file_basename = nrrd_file.stem  # filename without extension
@@ -140,11 +214,15 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
 
             if is_continuous:
                 print(f"                 Found 1 continuous body - skipping (expected at least 2)")
+                reason = 'Only 1 continuous body found (expected at least 2 for LCA/RCA)'
                 results_summary['failed_files'].append({
                     'filename': nrrd_file.name,
-                    'reason': 'Only 1 continuous body found (expected at least 2 for LCA/RCA)'
+                    'reason': reason
                 })
                 results_summary['failure_count'] += 1
+
+                # Log to error logger
+                error_logger.add_file_result(nrrd_file.name, 'failed', reason=reason)
                 continue
 
             sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
@@ -153,11 +231,15 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
 
             if num_bodies < 2:
                 print(f"                 Insufficient bodies found - skipping")
+                reason = f'Only {num_bodies} bodies found (expected at least 2)'
                 results_summary['failed_files'].append({
                     'filename': nrrd_file.name,
-                    'reason': f'Only {num_bodies} bodies found (expected at least 2)'
+                    'reason': reason
                 })
                 results_summary['failure_count'] += 1
+
+                # Log to error logger
+                error_logger.add_file_result(nrrd_file.name, 'failed', reason=reason)
                 continue
 
             # Step 1: Compute distance transform ONCE on full mask (optimization)
@@ -199,6 +281,12 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                     step_mm=step_mm,
                     remove_bypass=remove_bypass,
                     bypass_threshold=bypass_threshold,
+                    prune_small_y_branches=prune_small_y_branches,
+                    max_y_branch_length_voxels=max_y_branch_length_voxels,
+                    max_y_branch_length_mm=max_y_branch_length_mm,
+                    min_branch_length_voxels=min_branch_length_voxels,
+                    min_branch_length_mm=min_branch_length_mm,
+                    max_recursion_depth=max_recursion_depth,
                     angle_weight=angle_weight,
                     diameter_weight=diameter_weight,
                     path_length_weight=path_length_weight,
@@ -214,22 +302,121 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             lca_index = classification['lca_index']
             rca_index = classification['rca_index']
 
+            # Create error trackers for each vessel
+            lca_tracker = VesselErrorTracker(nrrd_file.name, 'LCA')
+            rca_tracker = VesselErrorTracker(nrrd_file.name, 'RCA')
+            vessel_trackers = [lca_tracker, rca_tracker]
+
             # Step 4: Apply anatomical branch labeling (with integrated spatial validation)
             print(f"\n  --- Applying anatomical branch labels ---")
             graphs[lca_index] = annotate_lca_graph_with_branch_labels(
                 graphs[lca_index],
                 spacing_info,
-                trifurcation_threshold_mm=5.0
+                trifurcation_threshold_mm=lca_trifurcation_threshold_mm
             )
 
             graphs[rca_index] = annotate_rca_graph_with_branch_labels(graphs[rca_index])
 
-            # Step 5: Save results with correct labels
-            print(f"\n  --- Saving results with correct labels ---")
+            # Step 5: Validate anatomical labeling
+            print(f"\n  --- Validating anatomical labels ---")
+
+            # Validate LCA
+            lca_valid, lca_unlabeled = validate_anatomical_labels(
+                graphs[lca_index], 'LCA', lca_tracker, max_unlabeled=max_unlabeled_edges
+            )
+            if lca_valid:
+                print(f"  [LCA] ✓ Validation passed ({lca_tracker.metrics.get('unlabeled_edges', 0)} unlabeled edges)")
+            else:
+                print(f"  [LCA] ✗ Validation failed ({lca_tracker.metrics.get('unlabeled_edges', 0)} unlabeled edges, max: {max_unlabeled_edges})")
+
+            # Validate RCA
+            rca_valid, rca_unlabeled = validate_anatomical_labels(
+                graphs[rca_index], 'RCA', rca_tracker, max_unlabeled=max_unlabeled_edges
+            )
+            if rca_valid:
+                print(f"  [RCA] ✓ Validation passed ({rca_tracker.metrics.get('unlabeled_edges', 0)} unlabeled edges)")
+            else:
+                print(f"  [RCA] ✗ Validation failed ({rca_tracker.metrics.get('unlabeled_edges', 0)} unlabeled edges, max: {max_unlabeled_edges})")
+
+            # Step 5b: Validate LCA branch length ratio (detects potential LCA/RCA swap)
+            print(f"\n  --- Validating LCA branch length ratios ---")
+
+            # Initial validation - don't log critical yet, we'll try swapping first
+            ratio_valid, lad_len, lcx_len, ratio = validate_lca_branch_length_ratio(
+                graphs[lca_index], spacing_info, lca_tracker,
+                min_ratio=min_lca_branch_length_ratio,
+                log_critical=False  # Don't log critical yet - try swap first
+            )
+
+            if ratio_valid:
+                print(f"  [LCA] ✓ Branch length ratio passed (LAD={lad_len:.1f}mm, LCx={lcx_len:.1f}mm, ratio={ratio:.3f})")
+            else:
+                print(f"  [LCA] ✗ Branch length ratio failed (LAD={lad_len:.1f}mm, LCx={lcx_len:.1f}mm, ratio={ratio:.3f} < {min_lca_branch_length_ratio:.3f})")
+                print(f"  [!] Attempting to swap LCA/RCA classification and re-label...")
+
+                # Swap indices
+                lca_index, rca_index = rca_index, lca_index
+
+                # Get fresh unlabeled graphs from processing_results (before any labeling)
+                # Use .copy() to avoid modifying the original
+                graphs[0] = processing_results[0]['final_graph'].copy()
+                graphs[1] = processing_results[1]['final_graph'].copy()
+
+                # Re-label both vessels with swapped classification
+                print(f"  [!] Re-labeling vessel 1 as {'LCA' if lca_index == 0 else 'RCA'}...")
+                print(f"  [!] Re-labeling vessel 2 as {'LCA' if lca_index == 1 else 'RCA'}...")
+
+                graphs[lca_index] = annotate_lca_graph_with_branch_labels(
+                    graphs[lca_index],
+                    spacing_info,
+                    trifurcation_threshold_mm=lca_trifurcation_threshold_mm
+                )
+                graphs[rca_index] = annotate_rca_graph_with_branch_labels(graphs[rca_index])
+
+                # Validate again with swapped labels
+                print(f"  [!] Re-validating anatomical labels after swap...")
+
+                # Re-validate LCA anatomical labels
+                lca_valid, lca_unlabeled = validate_anatomical_labels(
+                    graphs[lca_index], 'LCA', lca_tracker, max_unlabeled=max_unlabeled_edges
+                )
+
+                # Re-validate RCA anatomical labels
+                rca_valid, rca_unlabeled = validate_anatomical_labels(
+                    graphs[rca_index], 'RCA', rca_tracker, max_unlabeled=max_unlabeled_edges
+                )
+
+                # Re-validate LCA branch length ratio (log critical if this also fails)
+                ratio_valid_retry, lad_len_retry, lcx_len_retry, ratio_retry = validate_lca_branch_length_ratio(
+                    graphs[lca_index], spacing_info, lca_tracker,
+                    min_ratio=min_lca_branch_length_ratio,
+                    log_critical=True  # Now log critical if validation still fails
+                )
+
+                if ratio_valid_retry:
+                    print(f"  [LCA] ✓ Branch length ratio passed after swap (LAD={lad_len_retry:.1f}mm, LCx={lcx_len_retry:.1f}mm, ratio={ratio_retry:.3f})")
+                    print(f"  [✓] Swap successful - using corrected classification")
+                else:
+                    print(f"  [LCA] ✗ Branch length ratio still failed after swap (LAD={lad_len_retry:.1f}mm, LCx={lcx_len_retry:.1f}mm, ratio={ratio_retry:.3f} < {min_lca_branch_length_ratio:.3f})")
+                    print(f"  [✗] Swap unsuccessful - LCA/RCA classification is ambiguous")
+
+                    # Log critical error for both vessels
+                    lca_tracker.log_critical(
+                        "LCA/RCA Classification",
+                        "Branch length ratio validation failed even after swapping LCA/RCA. Cannot reliably classify vessels."
+                    )
+                    rca_tracker.log_critical(
+                        "LCA/RCA Classification",
+                        "Branch length ratio validation failed even after swapping LCA/RCA. Cannot reliably classify vessels."
+                    )
+
+            # Step 6: Save results (only for vessels that pass validation)
+            print(f"\n  --- Saving results (validation-based) ---")
             vessel_info = [
                 {
                     'index': lca_index,
                     'label': 'LCA',
+                    'tracker': lca_tracker,
                     'graph': graphs[lca_index],
                     'mask': body_masks[lca_index],
                     'distance_array': distance_arrays[lca_index],
@@ -238,6 +425,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 {
                     'index': rca_index,
                     'label': 'RCA',
+                    'tracker': rca_tracker,
                     'graph': graphs[rca_index],
                     'mask': body_masks[rca_index],
                     'distance_array': distance_arrays[rca_index],
@@ -245,12 +433,19 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 }
             ]
 
+            vessels_saved = 0
             for vessel in vessel_info:
                 label = vessel['label']
+                tracker = vessel['tracker']
                 graph = vessel['graph']
                 mask = vessel['mask']
                 distance_array = vessel['distance_array']
                 result = vessel['result']
+
+                # Check if vessel should be saved (passed validation)
+                if not tracker.should_save():
+                    print(f"  [{label}] ⚠️  Skipping save - failed validation")
+                    continue
 
                 nodes_csv = os.path.join(output_folder, f"{file_basename}_{label}_nodes.csv")
                 edges_csv = os.path.join(output_folder, f"{file_basename}_{label}_edges.csv")
@@ -298,13 +493,31 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                     visualize_3d_graph(graph, binary_mask=mask, title=viz_title)
                     print(f"                  Visualization displayed")
 
+                vessels_saved += 1
                 results_summary['total_arteries_processed'] += 1
+
+            # Determine file status
+            if vessels_saved == 2:
+                file_status = 'success'
+                results_summary['success_count'] += 1
+            elif vessels_saved == 1:
+                file_status = 'partial'
+                results_summary['success_count'] += 1
+            else:
+                file_status = 'failed'
+                results_summary['failure_count'] += 1
+
+            # Add to error logger
+            error_logger.add_file_result(
+                nrrd_file.name,
+                status=file_status,
+                trackers=vessel_trackers
+            )
 
             results_summary['processed_files'].append({
                 'filename': nrrd_file.name,
-                'arteries_processed': 2
+                'arteries_processed': vessels_saved
             })
-            results_summary['success_count'] += 1
 
             # Memory monitoring after processing
             mem_after = process.memory_info().rss / 1024**3
@@ -323,13 +536,23 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
         except Exception as e:
             print(f"\n[ERROR] Failed to process {nrrd_file.name}")
             print(f"        Error: {str(e)}")
+            reason = f"Exception during processing: {str(e)}"
             results_summary['failed_files'].append({
                 'filename': nrrd_file.name,
-                'reason': str(e)
+                'reason': reason
             })
             results_summary['failure_count'] += 1
 
+            # Log to error logger
+            error_logger.add_file_result(nrrd_file.name, 'failed', reason=reason)
+
     batch_total_time = time.time() - batch_start_time
+
+    # Write comprehensive error log
+    print("\n" + "=" * 80)
+    print("WRITING ERROR LOG")
+    print("=" * 80)
+    error_logger.write_log()
 
     print("\n" + "=" * 80)
     print("BATCH PROCESSING COMPLETE - SUMMARY")
@@ -337,6 +560,8 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
     print(f"\nTotal batch processing time: {batch_total_time:.3f}s ({batch_total_time/60:.2f} minutes)")
     print(f"\nFiles processed: {results_summary['success_count']}/{results_summary['total_files']}")
     print(f"Files failed: {results_summary['failure_count']}/{results_summary['total_files']}")
+    if results_summary['skipped_count'] > 0:
+        print(f"Files skipped (already processed): {results_summary['skipped_count']}")
     print(f"Total arteries processed: {results_summary['total_arteries_processed']}")
 
     if results_summary['success_count'] > 0:
@@ -348,6 +573,78 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             print(f"  - {failed['filename']}: {failed['reason']}")
 
     print("=" * 80)
+
+    # Prompt user to merge results into compressed file
+    if results_summary['success_count'] > 0 or results_summary['skipped_count'] > 0:
+        print("\n" + "=" * 80)
+        print("MERGE RESULTS")
+        print("=" * 80)
+        print("\nWould you like to merge all analysis files into a single compressed file?")
+        print("This reduces storage space and makes distribution easier.")
+        print()
+
+        while True:
+            response = input("Merge results? [Y]es / [N]o: ").strip().upper()
+            if response in ['Y', 'YES']:
+                # Ask for compression method
+                print("\nSelect compression method:")
+                print("  [1] gzip  - Fast, good compression (~5-10x smaller) [default]")
+                print("  [2] bz2   - Slower, better compression (~8-15x smaller)")
+                print("  [3] lzma  - Slowest, best compression (~10-20x smaller)")
+                print()
+
+                compression_choice = input("Enter choice (1/2/3) or press Enter for default: ").strip()
+
+                if compression_choice == '2':
+                    compression = 'bz2'
+                    ext = '.bz2'
+                elif compression_choice == '3':
+                    compression = 'lzma'
+                    ext = '.xz'
+                else:
+                    compression = 'gzip'
+                    ext = '.gz'
+
+                # Generate output filename based on input folder name
+                folder_name = Path(output_folder).name
+                merged_filename = f"{folder_name}_merged.pkl{ext}"
+                merged_path = Path(output_folder) / merged_filename
+
+                print(f"\nMerging files to: {merged_path}")
+                print()
+
+                try:
+                    from utilities import merge_artery_analyses
+
+                    merge_stats = merge_artery_analyses(
+                        input_folder=output_folder,
+                        output_file=str(merged_path),
+                        pattern='*_analysis.pkl',
+                        compression=compression
+                    )
+
+                    print()
+                    print("✓ Merge successful!")
+                    print(f"  Merged file: {merged_path}")
+                    print(f"  Size: {merge_stats['output_size_mb']:.2f} MB")
+                    print()
+
+                except Exception as e:
+                    print(f"\n✗ Merge failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                break
+
+            elif response in ['N', 'NO']:
+                print("\nSkipping merge. You can merge later using:")
+                print(f"  python compress_and_merge_results.py {output_folder} <output_file.pkl.gz>")
+                print()
+                break
+            else:
+                print("Invalid input. Please enter 'Y' for Yes or 'N' for No.")
+
+        print("=" * 80)
 
     results_summary['total_time'] = batch_total_time
     return results_summary

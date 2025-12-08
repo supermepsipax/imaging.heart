@@ -10,8 +10,10 @@
 # ==============================================================================
 # Specify where to find input NRRD mask files and where to save results
 
-input_folder: "data/batch_3"   # Directory containing .nrrd mask files
-output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
+# input_folder: "data/batch_3"   # Directory containing .nrrd mask files
+# output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
+input_folder: "data/to_test"   # Directory containing .nrrd mask files
+output_folder: "results/to_test"  # Directory for output CSVs and pickle files
 
 
 # ==============================================================================
@@ -32,9 +34,83 @@ remove_bypass: true
 # Bypass edges are artifacts where skeleton creates direct shortcuts
 # between branches that should be sequential
 
-bypass_threshold: 2.0
+bypass_threshold: 1.5
 # Maximum Euclidean distance (in voxels) for identifying bypass edges
 # Only used when remove_bypass=true
+# Lower values are more conservative (remove fewer edges)
+# Recommended: 1.0-1.5 for tight skeletons, 2.0-3.0 for noisy skeletons
+
+prune_small_y_branches: true
+# Whether to detect and remove small Y-shaped spurious branches
+# Y-branches are skeletonization artifacts where a bifurcation has 2+ small
+# endpoint branches that lead nowhere. These typically occur near vessel origins
+# and can interfere with origin node detection.
+
+max_y_branch_length_voxels: 5
+# Maximum voxel path length for a branch to be considered "small" in Y-branch pruning
+# Only used when prune_small_y_branches=true
+# Recommended: 3-5 voxels for typical coronary artery data
+
+max_y_branch_length_mm: null
+# Optional: Maximum physical length (mm) for Y-branch pruning
+# Set to null to use only voxel threshold
+# If both voxel and mm thresholds are set, BOTH must be satisfied for removal
+
+min_branch_length_voxels: 4
+# Minimum path length (voxels) for branches during sparse graph construction
+# Paths shorter than this will be excluded from the graph (dead-end branch removal)
+# Set to null to disable filtering
+# Recommended: 5-10 voxels to remove very small spurious branches
+
+min_branch_length_mm: null
+# Optional: Minimum path length (mm) for branches during sparse graph construction
+# Set to null to use only voxel threshold
+# If both voxel and mm thresholds are set, voxel threshold takes precedence
+
+max_recursion_depth: 5
+# Maximum number of recursive passes for removing short branches
+# Each pass identifies short dead-end branches, removes them, and rebuilds the graph
+# Higher values allow more thorough cleaning but increase computation time
+# Recommended: 3-5 passes is usually sufficient
+
+# ==============================================================================
+# LCA TRIFURCATION DETECTION
+# ==============================================================================
+# Controls detection of pseudo-trifurcations in the Left Coronary Artery
+
+lca_trifurcation_threshold_mm: 3.0
+# Maximum length (mm) of a short segment to be considered part of a pseudo-trifurcation
+# A pseudo-trifurcation occurs when edge "11" or "12" is very short and quickly bifurcates,
+# making it appear as if 3 branches emerge nearly simultaneously from the Left Main
+#
+# Lower values = more conservative (fewer trifurcations detected, fewer Ramus labels)
+# Higher values = more aggressive (more trifurcations detected, more Ramus labels)
+#
+# Recommended: 3.0-7.0 mm depending on image resolution and anatomy
+# If Ramus is being over-detected, reduce this value (try 3.0-4.0 mm)
+
+# ==============================================================================
+# VALIDATION THRESHOLDS
+# ==============================================================================
+# Quality control thresholds for determining if vessel results should be saved
+
+max_unlabeled_edges: 1
+# Maximum number of edges allowed without anatomical labels (LCA/RCA branch labels)
+# In proper labeling, only the short segment in pseudo-trifurcations should be unlabeled
+#
+# Default: 1 (allows one unlabeled edge for pseudo-trifurcation short segment)
+# Set to 0 for strict validation (all edges must have anatomical labels)
+# Vessels exceeding this threshold are flagged as CRITICAL and not saved
+
+min_lca_branch_length_ratio: 0.1
+# Minimum acceptable ratio between LAD and LCx lengths (shorter/longer)
+# Used to detect potential LCA/RCA misclassification
+# If ratio is below threshold, the pipeline will attempt to swap LCA/RCA labels
+#
+# Default: 0.1 (10% - one branch can be at most 10x shorter than the other)
+# Lower values are more permissive (allow greater length differences)
+# Higher values are more strict (require more similar lengths)
+# Recommended: 0.1-0.2 for typical coronary anatomy
 
 # ==============================================================================
 # BIFURCATION ANGLE COMPUTATION PARAMETERS
@@ -69,7 +145,7 @@ path_length_weight: 0.6
 # VISUALIZATION SETTINGS
 # ==============================================================================
 
-visualize: false
+visualize: false 
 # Whether to display interactive 3D visualizations during processing
 # - true: Show visualizations (useful for debugging, inspecting results)
 # - false: No visualization (recommended for large batch processing)

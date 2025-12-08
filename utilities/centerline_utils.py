@@ -26,7 +26,6 @@ def ensure_continuous_body(binary_mask, debug=False):
 
     """
 
-    # connectivity_structure = np.ones((3,) * binary_mask.ndim, dtype=int)
     connectivity_structure = np.ones((3,3,3), dtype=int)
 
     labelled_bodies, num_of_bodies = ndimage.label(binary_mask, structure=connectivity_structure)
@@ -36,7 +35,7 @@ def ensure_continuous_body(binary_mask, debug=False):
 
     return num_of_bodies == 1, labelled_bodies
 
-def extract_centerline_skimage(binary_mask): #,distance_array,smooth_sigma=1, neighborhood_size=3,dialation_iterations=5):
+def extract_centerline_skimage(binary_mask):
     """
     Reduces the binary_mask into a single voxel representation
 
@@ -46,16 +45,7 @@ def extract_centerline_skimage(binary_mask): #,distance_array,smooth_sigma=1, ne
     Returns:
         reduced_mask (array): A reduced version numpy binary mask 
     """
-    # reduced_mask = skeletonize(binary_mask)
-    # binary_mask = (binary_mask > 0).astype(np.uint8)
-    # sitk_img = sitk.GetImageFromArray(binary_mask)
-    # sitk_img = sitk.Cast(sitk_img, sitk.sitkUInt8)
-    # thinner = sitk.BinaryThinningImageFilter()
-    # centerline_img = thinner.Execute(sitk_img)
-    # centerline = sitk.GetArrayFromImage(centerline_img).astype(np.uint8)
-    # print("centerline shape:", centerline.shape)
-    # print("number of centerline voxels:", centerline.sum())
-    reduced_mask = skeletonize(binary_mask)
 
+    reduced_mask = skeletonize(binary_mask)
     
     return reduced_mask

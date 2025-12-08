@@ -442,7 +442,7 @@ def _stitch_diameter_profiles(graph, ordered_edges, profile_attr):
 
         profile = edge_data[profile_attr]
 
-        if not profile:
+        if len(profile) == 0:
             continue
 
         # Check if profile needs to be reversed

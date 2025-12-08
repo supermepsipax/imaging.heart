@@ -10,10 +10,10 @@
 # ==============================================================================
 # Specify where to find input NRRD mask files and where to save results
 
-# input_folder: "data/batch_3"   # Directory containing .nrrd mask files
-# output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
-input_folder: "data/to_test"   # Directory containing .nrrd mask files
-output_folder: "results/to_test"  # Directory for output CSVs and pickle files
+input_folder: "data/batch_3"   # Directory containing .nrrd mask files
+output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
+# input_folder: "data/to_test"   # Directory containing .nrrd mask files
+# output_folder: "results/to_test"  # Directory for output CSVs and pickle files
 
 
 # ==============================================================================
@@ -140,6 +140,27 @@ step_mm: 0.5
 angle_weight: 0.15
 diameter_weight: 0.25
 path_length_weight: 0.6
+
+# ==============================================================================
+# DIAMETER COMPUTATION METHOD
+# ==============================================================================
+# Choose which method(s) to use for computing vessel diameters
+# Different methods have different computational costs and accuracy
+
+diameter_method: 'slicing'
+# Options:
+#   'slicing' - Plane-based slicing method (faster, no distance transform needed)
+#               Computes diameter by creating perpendicular cross-sections along the vessel
+#               Attributes: mean_diameter_slicing, median_diameter_slicing, diameter_profile_slicing
+#   'edt'     - Euclidean Distance Transform method (requires expensive distance transform)
+#               Uses the distance transform to estimate diameter at each centerline point
+#               Attributes: mean_diameter_edt, median_diameter_edt, diameter_profile_edt
+#   'both'    - Compute both methods for comparison (slowest, computes distance transform)
+#
+# Recommended:
+#   - Use 'slicing' for faster processing if you only need one diameter measurement
+#   - Use 'edt' if you prefer the distance transform method and already have it computed
+#   - Use 'both' if you want to compare methods or need both for statistical analysis
 
 # ==============================================================================
 # VISUALIZATION SETTINGS

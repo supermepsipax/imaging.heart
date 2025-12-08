@@ -1,5 +1,6 @@
 import numpy as np
 import networkx as nx
+import re
 
 
 def compute_direction_vector(start_node, end_node, spacing_info):
@@ -42,28 +43,33 @@ def find_main_trunk_endpoint(graph, trunk_label):
     """
     candidate_edges = []
 
-    for edge in graph.edges():
-        edge_pos = graph.edges[edge].get('edge_position', '')
+    non_repeating = trunk_label[:-1]
+    repeating = trunk_label[-1]
+    regex = re.compile(rf"^{non_repeating}{repeating}*$")
 
-        # Find all edges that start with this trunk_label
-        if edge_pos and edge_pos.startswith(trunk_label):
-            # Check if it's a main continuation (not a side branch)
-            # Main continuation: all digits after trunk_label are the same as the last digit
-            if len(edge_pos) > len(trunk_label):
-                # Get the last digit of trunk_label
-                last_digit = trunk_label[-1]
-                # Check if remaining digits are all the same as last_digit
-                remaining = edge_pos[len(trunk_label):]
-                if all(c == last_digit for c in remaining):
-                    candidate_edges.append((edge, len(edge_pos)))
-            else:
-                # This is exactly the trunk_label (no continuation)
-                candidate_edges.append((edge, len(edge_pos)))
+    for edge in graph.edges():
+        edge_position = graph.edges[edge].get('edge_position', '')
+        if regex.match(edge_position):
+            candidate_edges.append((edge, edge_position))
+
+        # if edge_pos and edge_pos.startswith(trunk_label):
+        #     # Check if it's a main continuation (not a side branch)
+        #     # Main continuation: all digits after trunk_label are the same as the last digit
+        #     if len(edge_pos) > len(trunk_label):
+        #         # Get the last digit of trunk_label
+        #         last_digit = trunk_label[-1]
+        #         # Check if remaining digits are all the same as last_digit
+        #         remaining = edge_pos[len(trunk_label):]
+        #         if all(c == last_digit for c in remaining):
+        #             candidate_edges.append((edge, len(edge_pos)))
+        #     else:
+        #         # This is exactly the trunk_label (no continuation)
+        #         candidate_edges.append((edge, len(edge_pos)))
 
     if not candidate_edges:
         return None
 
-    longest_edge = max(candidate_edges, key=lambda x: x[1])[0]
+    longest_edge = max(candidate_edges, key=lambda x: len(x[1]))[0]
     return longest_edge[1]
 
 
@@ -180,12 +186,65 @@ def detect_lca_trifurcation(graph, trifurcation_threshold_mm=5.0):
     }
 
 
+def find_middle_branch_in_plane_projection(branch_directions, branch_labels, plane_normal_axis):
+    """
+    Projects branches onto a plane and finds which is angularly in the middle.
+
+    Args:
+        branch_directions (dict): Maps branch label to 3D direction vector
+        branch_labels (list): List of 3 branch labels
+        plane_normal_axis (int): Axis perpendicular to projection plane (0=X, 1=Y, 2=Z)
+
+    Returns:
+        str: Label of the middle branch in this projection
+    """
+    # Project onto plane by zeroing out the normal axis component
+    projected = {}
+    for label, direction in branch_directions.items():
+        proj = direction.copy()
+        proj[plane_normal_axis] = 0  # Zero out the component perpendicular to plane
+
+        norm = np.linalg.norm(proj)
+        if norm > 1e-6:
+            proj = proj / norm
+        else:
+            proj = np.array([0, 0, 0])
+
+        projected[label] = proj
+
+    # Compute 2D angles in the plane
+    # Use first non-zero axis as reference
+    axes_in_plane = [i for i in range(3) if i != plane_normal_axis]
+    x_axis_idx = axes_in_plane[0]
+    y_axis_idx = axes_in_plane[1]
+
+    angles = {}
+    for label, proj in projected.items():
+        if np.linalg.norm(proj) < 1e-6:
+            angles[label] = 0.0
+        else:
+            x_comp = proj[x_axis_idx]
+            y_comp = proj[y_axis_idx]
+            angle_rad = np.arctan2(y_comp, x_comp)
+            angle_deg = np.degrees(angle_rad)
+            if angle_deg < 0:
+                angle_deg += 360
+            angles[label] = angle_deg
+
+    # Sort by angle and return middle one
+    sorted_branches = sorted(angles.items(), key=lambda x: x[1])
+    return sorted_branches[1][0]  # Middle branch
+
+
 def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, spacing_info):
     """
     Identifies which of three branches is the most geometrically central (Ramus).
 
-    The Ramus is the branch that forms the largest angle between the other two branches
-    (i.e., the other two branches are most separated when measured from the Ramus).
+    Uses a multi-plane voting approach:
+    1. Projects branches onto 3 orthogonal planes (XY, XZ, YZ)
+    2. Finds the middle branch in each projection
+    3. Branch with most votes (2+) is the Ramus
+    4. If no consensus, falls back to dot product with input vessel
 
     Args:
         graph (nx.DiGraph): Graph with edge_position labels
@@ -201,222 +260,334 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
 
     origin_node = next(n for n, d in graph.in_degree() if d == 0)
 
+    # Get immediate endpoints for each branch (initial segment only)
+    # This captures the branching angle at the trifurcation point
     endpoints = {}
     for label in branch_labels:
-        endpoint = find_main_trunk_endpoint(graph, label)
-        if endpoint is None:
-            for edge in graph.edges():
-                if graph.edges[edge].get('edge_position') == label:
-                    endpoint = edge[1]
-                    break
+        # Use immediate endpoint of the first edge with this label
+        # This represents the initial segment direction, not the entire trunk
+        endpoint = None
+        for edge in graph.edges():
+            if graph.edges[edge].get('edge_position') == label:
+                endpoint = edge[1]
+                break
         if endpoint is not None:
             endpoints[label] = endpoint
 
     if len(endpoints) != 3:
+        print(f"      [WARNING] Could not find all 3 branch endpoints for Ramus detection")
         return branch_labels[0]
 
-    # Compute direction vectors from bifurcation to each endpoint
-    directions = {}
-    directions['origin'] = compute_direction_vector(origin_node, bifurcation_node, spacing_info)
+    # Compute direction vectors
+    input_direction = compute_direction_vector(origin_node, bifurcation_node, spacing_info)
+    branch_directions = {}
     for label, endpoint in endpoints.items():
         direction = compute_direction_vector(bifurcation_node, endpoint, spacing_info)
-        directions[label] = direction
+        branch_directions[label] = direction
 
+    # Vote across 3 orthogonal plane projections
+    plane_names = ['YZ (perp to X)', 'XZ (perp to Y)', 'XY (perp to Z)']
+    votes = {label: 0 for label in branch_labels}
 
-    # For each branch, compute the angle between the other two branches
-    # The central branch (Ramus) is the one where the other two branches form the largest angle
-    max_angle_between_others = -1
-    highest_dot_product = 0
-    central_branch = ''
+    print(f"               Ramus detection (multi-plane voting):")
 
-    central_branch = None
+    for plane_axis in range(3):  # 0=X, 1=Y, 2=Z
+        middle_branch = find_middle_branch_in_plane_projection(
+            branch_directions, branch_labels, plane_axis
+        )
+        votes[middle_branch] += 1
+        print(f"                 Plane {plane_names[plane_axis]}: '{middle_branch}' is middle")
 
+    # Find branch with most votes
+    sorted_by_votes = sorted(votes.items(), key=lambda x: x[1], reverse=True)
+    winner = sorted_by_votes[0]
+
+    print(f"                 Votes: {dict(votes)}")
+
+    # If clear winner (2+ votes), use it
+    if winner[1] >= 2:
+        central_branch = winner[0]
+        print(f"                 → RAMUS: '{central_branch}' (won {winner[1]}/3 votes)")
+        return central_branch
+
+    # No consensus - fall back to complexity-based method
+    # Ramus is typically the shortest/least complex intermediate branch
+    print(f"                 No consensus (tie votes) - using fallback method")
+    print(f"                 Fallback: shortest/least complex branch is likely Ramus")
+
+    # Calculate total branch length for each branch (including all descendants)
+    def get_longest_path_length(branch_label):
+        """Find the longest path through all edges starting with this label."""
+        # Find all edges that start with this label
+        descendant_edges = []
+        for edge in graph.edges():
+            edge_pos = graph.edges[edge].get('edge_position', '')
+            if edge_pos.startswith(branch_label):
+                descendant_edges.append((edge, edge_pos))
+
+        if not descendant_edges:
+            return 0.0
+
+        # Build subgraph of this branch
+        branch_graph = nx.DiGraph()
+        for edge, edge_pos in descendant_edges:
+            length = graph.edges[edge].get('path_length_mm', 0)
+            branch_graph.add_edge(edge[0], edge[1], length=length)
+
+        # Find all leaf nodes (endpoints)
+        leaf_nodes = [n for n in branch_graph.nodes() if branch_graph.out_degree(n) == 0]
+
+        if not leaf_nodes:
+            # No leaves found, just sum all edges
+            return sum(graph.edges[e].get('path_length_mm', 0) for e, _ in descendant_edges)
+
+        # Find the root node of this branch (node with in-degree 0)
+        root_nodes = [n for n in branch_graph.nodes() if branch_graph.in_degree(n) == 0]
+
+        if not root_nodes:
+            # No root found, just sum all edges
+            return sum(graph.edges[e].get('path_length_mm', 0) for e, _ in descendant_edges)
+
+        # Use the first root node (should only be one in a tree structure)
+        root_node = root_nodes[0]
+
+        # Find longest path from root to any leaf
+        max_path_length = 0
+        for leaf in leaf_nodes:
+            try:
+                path = nx.shortest_path(branch_graph, root_node, leaf)
+                path_length = sum(
+                    branch_graph.edges[path[i], path[i+1]]['length']
+                    for i in range(len(path) - 1)
+                )
+                max_path_length = max(max_path_length, path_length)
+            except nx.NetworkXNoPath:
+                continue
+
+        return max_path_length
+
+    # Get branch metrics
+    branch_metrics = {}
     for label in branch_labels:
-        dot_product = np.dot(directions['origin'], directions[label])
-        if dot_product > highest_dot_product:
-            highest_dot_product = dot_product
-            central_branch = label
+        total_length = get_longest_path_length(label)
+        dot_product = np.dot(input_direction, branch_directions[label])
+
+        # Complexity score: longer branches with higher alignment are more complex
+        complexity = total_length * (1.0 + dot_product)
+
+        branch_metrics[label] = {
+            'total_length': total_length,
+            'dot_product': dot_product,
+            'complexity': complexity
+        }
+        print(f"                   '{label}': length={total_length:.1f}mm, dot={dot_product:.3f}, score={complexity:.2f}")
+
+    # Ramus = least complex (shortest total path, least aligned)
+    central_branch = min(branch_metrics.items(), key=lambda x: x[1]['complexity'])[0]
+
+    print(f"                 → RAMUS: '{central_branch}' (fallback: least complex)")
+    return central_branch
+
+    # ============================================================================
+    # ORIGINAL IMPLEMENTATION (commented out)
+    # ============================================================================
+    # This approach used dot product with input vessel direction, but failed when
+    # the input vessel was highly aligned with one of the branches (e.g., LAD)
+    # ============================================================================
+    # if len(branch_labels) != 3:
+    #     return None
     #
-    # for i, label_i in enumerate(branch_labels):
-    #     # Get the other two branches
-    #     other_labels = [branch_labels[j] for j in range(3) if j != i]
+    # origin_node = next(n for n, d in graph.in_degree() if d == 0)
     #
-    #     if label_i not in directions or other_labels[0] not in directions or other_labels[1] not in directions:
-    #         continue
+    # endpoints = {}
+    # for label in branch_labels:
+    #     endpoint = find_main_trunk_endpoint(graph, label)
+    #     if endpoint is None:
+    #         for edge in graph.edges():
+    #             if graph.edges[edge].get('edge_position') == label:
+    #                 endpoint = edge[1]
+    #                 break
+    #     if endpoint is not None:
+    #         endpoints[label] = endpoint
     #
-    #     # Compute angle between the other two branches
-    #     dir_1 = directions[other_labels[0]]
-    #     dir_2 = directions[other_labels[1]]
+    # if len(endpoints) != 3:
+    #     return branch_labels[0]
     #
-    #     # Angle between two vectors using dot product
-    #     dot_product = np.dot(dir_1, dir_2)
-    #     dot_product = np.clip(dot_product, -1.0, 1.0)  # Handle numerical errors
-    #     angle = np.arccos(dot_product)  # in radians
+    # directions = {}
+    # directions['origin'] = compute_direction_vector(origin_node, bifurcation_node, spacing_info)
+    # for label, endpoint in endpoints.items():
+    #     direction = compute_direction_vector(bifurcation_node, endpoint, spacing_info)
+    #     directions[label] = direction
     #
-    #     if angle > max_angle_between_others:
-    #         max_angle_between_others = angle
-    #         central_branch = label_i
+    #
+    # highest_dot_product = 0
+    # central_branch = None
+    #
+    # for label in branch_labels:
+    #     dot_product = np.dot(directions['origin'], directions[label])
+    #     if dot_product > highest_dot_product:
+    #         highest_dot_product = dot_product
+    #         central_branch = label
     #
     # return central_branch if central_branch is not None else branch_labels[0]
-    return central_branch if central_branch is not None else branch_labels[0]
 
 
-def compute_branch_complexity_from_label(graph, edge_position_label):
-    """
-    Computes complexity metrics for all edges descending from a given edge position label.
-
-    Args:
-        graph (nx.DiGraph): Graph with edge_position labels
-        edge_position_label (str): Edge position label (e.g., "11", "12", "111")
-
-    Returns:
-        dict: Complexity metrics (num_endpoints, total_length, num_edges, etc.)
-    """
-    # Find all edges that start with this label (descendants)
-    descendant_edges = []
-
-    for edge in graph.edges():
-        edge_label = graph.edges[edge].get('edge_position', '')
-        if edge_label.startswith(edge_position_label):
-            descendant_edges.append(edge)
-
-    # Compute metrics
-    num_edges = len(descendant_edges)
-    total_length = sum(graph.edges[e].get('path_length_mm', 0) for e in descendant_edges)
-
-    # Count endpoints (edges with no descendants)
-    num_endpoints = 0
-    for edge in descendant_edges:
-        edge_label = graph.edges[edge].get('edge_position', '')
-        # Check if any other edge starts with this label + one more digit
-        has_children = any(
-            graph.edges[e].get('edge_position', '').startswith(edge_label) and
-            len(graph.edges[e].get('edge_position', '')) > len(edge_label)
-            for e in graph.edges()
-        )
-        if not has_children:
-            num_endpoints += 1
-
-    # Count bifurcations (nodes where this branch splits)
-    bifurcation_count = 0
-    visited_nodes = set()
-
-    for edge in descendant_edges:
-        end_node = edge[1]
-        if end_node in visited_nodes:
-            continue
-        visited_nodes.add(end_node)
-
-        # Check if this node has 2+ outgoing edges in our branch
-        out_edges_in_branch = [
-            e for e in graph.out_edges(end_node)
-            if graph.edges[e].get('edge_position', '').startswith(edge_position_label)
-        ]
-        if len(out_edges_in_branch) >= 2:
-            bifurcation_count += 1
-
-    complexity_score = (
-        bifurcation_count * 3.0 +
-        num_endpoints * 2.0 +
-        num_edges * 1.0 +
-        (total_length / 100) * 1.0
-    )
-
-    return {
-        'num_edges': num_edges,
-        'num_endpoints': num_endpoints,
-        'num_bifurcations': bifurcation_count,
-        'total_path_length_mm': total_length,
-        'complexity_score': complexity_score
-    }
-
-
-def label_lca_branches(graph, trifurcation_threshold_mm=5.0):
-    """
-    Labels LCA branches as LAD, LCx, and optionally Ramus based on existing edge_position labels.
-
-    Strategy:
-    - Bifurcation (normal):
-      - LAD: Edge "11" (distal/main continuation, typically more complex)
-      - LCx: Edge "12" (side branch)
-
-    - Trifurcation (if edge "11" is very short and splits quickly):
-      - Identifies "111", "112", "12" as the three main branches
-      - LAD: Most complex of the three
-      - LCx: Least complex / sharpest angle
-      - Ramus: Intermediate
-
-    Args:
-        graph (nx.DiGraph): LCA graph with edge_position labels
-        trifurcation_threshold_mm (float): Max length of "11" to consider trifurcation
-
-    Returns:
-        dict: {
-            'type': 'bifurcation' | 'trifurcation',
-            'labels': {'LAD': edge_position, 'LCx': edge_position, 'Ramus': edge_position (if trifurcation)},
-            'metrics': dict of complexity metrics for each branch
-        }
-    """
-    trifurcation_info = detect_lca_trifurcation(graph, trifurcation_threshold_mm)
-
-    if not trifurcation_info['primary_branches']:
-        return {'type': 'unknown', 'labels': {}, 'metrics': {}}
-
-    primary_branches = trifurcation_info['primary_branches']
-
-    branch_metrics = {}
-    for branch_label in primary_branches:
-        metrics = compute_branch_complexity_from_label(graph, branch_label)
-        branch_metrics[branch_label] = metrics
-
-    labels = {}
-
-    if trifurcation_info['is_trifurcation']:
-        # Trifurcation: classify "111", "112", "12"
-        # LAD = most complex
-        # LCx = least complex (typically wraps around, shorter)
-        # Ramus = intermediate
-
-        sorted_by_complexity = sorted(
-            branch_metrics.items(),
-            key=lambda x: x[1]['complexity_score'],
-            reverse=True
-        )
-
-        labels['LAD'] = sorted_by_complexity[0][0]     # Most complex
-        labels['Ramus'] = sorted_by_complexity[1][0]   # Intermediate
-        labels['LCx'] = sorted_by_complexity[2][0]     # Least complex
-
-        return {
-            'type': 'trifurcation',
-            'short_segment_length_mm': trifurcation_info['short_segment_length_mm'],
-            'labels': labels,
-            'metrics': branch_metrics
-        }
-    else:
-        # Bifurcation: "11" is LAD (distal/main), "12" is LCx (side branch)
-        # This is already determined by the edge labeling algorithm
-        # But we verify using complexity
-
-        if '11' in branch_metrics and '12' in branch_metrics:
-            # Typically "11" (distal) is LAD and "12" (side) is LCx
-            # But verify with complexity - LAD should be more complex
-            if branch_metrics['11']['complexity_score'] >= branch_metrics['12']['complexity_score']:
-                labels['LAD'] = '11'
-                labels['LCx'] = '12'
-            else:
-                # Unusual case: side branch is more complex
-                # This might indicate a dominant LCx system
-                labels['LAD'] = '12'
-                labels['LCx'] = '11'
-                print("[WARNING] Unusual LCA pattern: side branch ('12') is more complex than distal ('11')")
-                print("          This may indicate a left-dominant system or misclassification")
-
-        return {
-            'type': 'bifurcation',
-            'labels': labels,
-            'metrics': branch_metrics
-        }
+# def compute_branch_complexity_from_label(graph, edge_position_label):
+#     """
+#     Computes complexity metrics for all edges descending from a given edge position label.
+#
+#     Args:
+#         graph (nx.DiGraph): Graph with edge_position labels
+#         edge_position_label (str): Edge position label (e.g., "11", "12", "111")
+#
+#     Returns:
+#         dict: Complexity metrics (num_endpoints, total_length, num_edges, etc.)
+#     """
+#     # Find all edges that start with this label (descendants)
+#     descendant_edges = []
+#
+#     for edge in graph.edges():
+#         edge_label = graph.edges[edge].get('edge_position', '')
+#         if edge_label.startswith(edge_position_label):
+#             descendant_edges.append(edge)
+#
+#     # Compute metrics
+#     num_edges = len(descendant_edges)
+#     total_length = sum(graph.edges[e].get('path_length_mm', 0) for e in descendant_edges)
+#
+#     # Count endpoints (edges with no descendants)
+#     num_endpoints = 0
+#     for edge in descendant_edges:
+#         edge_label = graph.edges[edge].get('edge_position', '')
+#         # Check if any other edge starts with this label + one more digit
+#         has_children = any(
+#             graph.edges[e].get('edge_position', '').startswith(edge_label) and
+#             len(graph.edges[e].get('edge_position', '')) > len(edge_label)
+#             for e in graph.edges()
+#         )
+#         if not has_children:
+#             num_endpoints += 1
+#
+#     # Count bifurcations (nodes where this branch splits)
+#     bifurcation_count = 0
+#     visited_nodes = set()
+#
+#     for edge in descendant_edges:
+#         end_node = edge[1]
+#         if end_node in visited_nodes:
+#             continue
+#         visited_nodes.add(end_node)
+#
+#         # Check if this node has 2+ outgoing edges in our branch
+#         out_edges_in_branch = [
+#             e for e in graph.out_edges(end_node)
+#             if graph.edges[e].get('edge_position', '').startswith(edge_position_label)
+#         ]
+#         if len(out_edges_in_branch) >= 2:
+#             bifurcation_count += 1
+#
+#     complexity_score = (
+#         bifurcation_count * 3.0 +
+#         num_endpoints * 2.0 +
+#         num_edges * 1.0 +
+#         (total_length / 100) * 1.0
+#     )
+#
+#     return {
+#         'num_edges': num_edges,
+#         'num_endpoints': num_endpoints,
+#         'num_bifurcations': bifurcation_count,
+#         'total_path_length_mm': total_length,
+#         'complexity_score': complexity_score
+#     }
+#
+#
+# def label_lca_branches(graph, trifurcation_threshold_mm=5.0):
+#     """
+#     Labels LCA branches as LAD, LCx, and optionally Ramus based on existing edge_position labels.
+#
+#     Strategy:
+#     - Bifurcation (normal):
+#       - LAD: Edge "11" (distal/main continuation, typically more complex)
+#       - LCx: Edge "12" (side branch)
+#
+#     - Trifurcation (if edge "11" is very short and splits quickly):
+#       - Identifies "111", "112", "12" as the three main branches
+#       - LAD: Most complex of the three
+#       - LCx: Least complex / sharpest angle
+#       - Ramus: Intermediate
+#
+#     Args:
+#         graph (nx.DiGraph): LCA graph with edge_position labels
+#         trifurcation_threshold_mm (float): Max length of "11" to consider trifurcation
+#
+#     Returns:
+#         dict: {
+#             'type': 'bifurcation' | 'trifurcation',
+#             'labels': {'LAD': edge_position, 'LCx': edge_position, 'Ramus': edge_position (if trifurcation)},
+#             'metrics': dict of complexity metrics for each branch
+#         }
+#     """
+#     trifurcation_info = detect_lca_trifurcation(graph, trifurcation_threshold_mm)
+#
+#     if not trifurcation_info['primary_branches']:
+#         return {'type': 'unknown', 'labels': {}, 'metrics': {}}
+#
+#     primary_branches = trifurcation_info['primary_branches']
+#
+#     branch_metrics = {}
+#     for branch_label in primary_branches:
+#         metrics = compute_branch_complexity_from_label(graph, branch_label)
+#         branch_metrics[branch_label] = metrics
+#
+#     labels = {}
+#
+#     if trifurcation_info['is_trifurcation']:
+#         # Trifurcation: classify "111", "112", "12"
+#         # LAD = most complex
+#         # LCx = least complex (typically wraps around, shorter)
+#         # Ramus = intermediate
+#
+#         sorted_by_complexity = sorted(
+#             branch_metrics.items(),
+#             key=lambda x: x[1]['complexity_score'],
+#             reverse=True
+#         )
+#
+#         labels['LAD'] = sorted_by_complexity[0][0]     # Most complex
+#         labels['Ramus'] = sorted_by_complexity[1][0]   # Intermediate
+#         labels['LCx'] = sorted_by_complexity[2][0]     # Least complex
+#
+#         return {
+#             'type': 'trifurcation',
+#             'short_segment_length_mm': trifurcation_info['short_segment_length_mm'],
+#             'labels': labels,
+#             'metrics': branch_metrics
+#         }
+#     else:
+#         # Bifurcation: "11" is LAD (distal/main), "12" is LCx (side branch)
+#         # This is already determined by the edge labeling algorithm
+#         # But we verify using complexity
+#
+#         if '11' in branch_metrics and '12' in branch_metrics:
+#             # Typically "11" (distal) is LAD and "12" (side) is LCx
+#             # But verify with complexity - LAD should be more complex
+#             if branch_metrics['11']['complexity_score'] >= branch_metrics['12']['complexity_score']:
+#                 labels['LAD'] = '11'
+#                 labels['LCx'] = '12'
+#             else:
+#                 # Unusual case: side branch is more complex
+#                 # This might indicate a dominant LCx system
+#                 labels['LAD'] = '12'
+#                 labels['LCx'] = '11'
+#                 print("[WARNING] Unusual LCA pattern: side branch ('12') is more complex than distal ('11')")
+#                 print("          This may indicate a left-dominant system or misclassification")
+#
+#         return {
+#             'type': 'bifurcation',
+#             'labels': labels,
+#             'metrics': branch_metrics
+#         }
 
 
 def is_side_branch(edge_position, parent_edge_position):
@@ -514,37 +685,31 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
         endpoint_1 = find_main_trunk_endpoint(updated_graph, other_branches[0])
         endpoint_2 = find_main_trunk_endpoint(updated_graph, other_branches[1])
 
-        if endpoint_1 is None or endpoint_2 is None:
-            print("[WARNING] Could not find branch endpoints for spatial validation")
-            # Fallback to complexity-based labeling
-            labeling_result = label_lca_branches(updated_graph, trifurcation_threshold_mm)
-            main_branch_labels = labeling_result['labels']
+        direction_1 = compute_direction_vector(bifurcation_node, endpoint_1, spacing_info)
+        direction_2 = compute_direction_vector(bifurcation_node, endpoint_2, spacing_info)
+
+        anterior_component_1 = -direction_1[1]
+        anterior_component_2 = -direction_2[1]
+
+        if anterior_component_1 > anterior_component_2:
+            lad_current_label = other_branches[0]
+            lcx_current_label = other_branches[1]
         else:
-            direction_1 = compute_direction_vector(bifurcation_node, endpoint_1, spacing_info)
-            direction_2 = compute_direction_vector(bifurcation_node, endpoint_2, spacing_info)
+            lad_current_label = other_branches[1]
+            lcx_current_label = other_branches[0]
 
-            anterior_component_1 = -direction_1[1]
-            anterior_component_2 = -direction_2[1]
+        print(f"               LAD: '{lad_current_label}' (more anterior)")
+        print(f"               LCx: '{lcx_current_label}' (more posterior)")
+        print(f"               Ramus: '{ramus_current_label}' (most central)")
 
-            if anterior_component_1 > anterior_component_2:
-                lad_current_label = other_branches[0]
-                lcx_current_label = other_branches[1]
-            else:
-                lad_current_label = other_branches[1]
-                lcx_current_label = other_branches[0]
-
-            print(f"               LAD: '{lad_current_label}' (more anterior)")
-            print(f"               LCx: '{lcx_current_label}' (more posterior)")
-            print(f"               Ramus: '{ramus_current_label}' (most central)")
-
-            # Set main branch labels based on spatial validation
-            # Keep original edge_position labels, just assign anatomical names
-            main_branch_labels = {
-                'LAD': lad_current_label,
-                'LCx': lcx_current_label,
-                'Ramus': ramus_current_label
-            }
-            print(f"               [OK] Anatomical labels assigned based on spatial validation")
+        # Set main branch labels based on spatial validation
+        # Keep original edge_position labels, just assign anatomical names
+        main_branch_labels = {
+            'LAD': lad_current_label,
+            'LCx': lcx_current_label,
+            'Ramus': ramus_current_label
+        }
+        print(f"               [OK] Anatomical labels assigned based on spatial validation")
 
     else:
         print(f"[LCA Labeling] Bifurcation detected")

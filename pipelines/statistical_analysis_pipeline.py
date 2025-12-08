@@ -1,7 +1,10 @@
 import os
+import io
+import pickle
+import tarfile
 import numpy as np
 from pathlib import Path
-from utilities import load_artery_analysis, load_artery_analysis_compressed, load_config
+from utilities import load_artery_analysis, load_config
 from analysis import (
     extract_main_branch_statistics,
     extract_all_branch_statistics,
@@ -11,8 +14,9 @@ from analysis import (
 from collections import defaultdict
 
 
-def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folder=None,
-                         config=None, config_path=None, diameter_method=None, verbose=None):
+def analyze_artery_batch(input_folder=None, input_tar_file=None,
+                         output_folder=None, config=None, config_path=None,
+                         diameter_method=None, verbose=None):
     """
     Perform statistical analysis on a batch of artery analysis pickle files.
 
@@ -21,11 +25,11 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
 
     Supports two input modes:
     1. Individual files: Load from folder containing individual .pkl files
-    2. Merged file: Load from a single merged/compressed file (e.g., .pkl.gz)
+    2. Tar archive: Stream from tar.gz archive WITHOUT unpacking (memory-efficient)
 
     Args:
         input_folder (str, optional): Path to folder containing .pkl analysis files
-        input_merged_file (str, optional): Path to merged compressed file (e.g., results.pkl.gz)
+        input_tar_file (str, optional): Path to tar archive (e.g., results.tar.gz) - streams without unpacking
         output_folder (str, optional): Path to folder where analysis results will be saved
         config (dict, optional): Configuration dictionary with analysis parameters
         config_path (str, optional): Path to config file (if config not provided directly)
@@ -36,7 +40,7 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
         dict: Summary statistics and results from the batch analysis
 
     Note:
-        Only one of input_folder or input_merged_file should be provided.
+        Only one of input_folder or input_tar_file should be provided.
     """
 
     if config is None and config_path is not None:
@@ -48,8 +52,8 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
     # Load input source from config if not provided
     if input_folder is None:
         input_folder = config.get('input_folder')
-    if input_merged_file is None:
-        input_merged_file = config.get('input_merged_file')
+    if input_tar_file is None:
+        input_tar_file = config.get('input_tar_file')
     if output_folder is None:
         output_folder = config.get('output_folder')
     if diameter_method is None:
@@ -58,44 +62,44 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
         verbose = config.get('verbose', True)
 
     # Validate input source
-    if input_folder is None and input_merged_file is None:
-        raise ValueError("Either input_folder or input_merged_file must be provided")
+    if input_folder is None and input_tar_file is None:
+        raise ValueError("Must provide either input_folder or input_tar_file")
 
-    if input_folder is not None and input_merged_file is not None:
-        raise ValueError("Cannot specify both input_folder and input_merged_file - use only one")
+    if input_folder is not None and input_tar_file is not None:
+        raise ValueError("Cannot specify both input_folder and input_tar_file - use only one")
 
     if output_folder is not None:
         os.makedirs(output_folder, exist_ok=True)
 
     # Determine input mode and load data
-    if input_merged_file is not None:
-        # Mode 1: Load from merged compressed file
+    if input_tar_file is not None:
+        # Mode 1: Stream from tar archive (memory-efficient)
         print("=" * 80)
-        print("STATISTICAL ANALYSIS PIPELINE (MERGED FILE MODE)")
+        print("STATISTICAL ANALYSIS PIPELINE (TAR ARCHIVE MODE)")
         print("=" * 80)
-        print(f"Input merged file: {input_merged_file}")
+        print(f"Input tar file: {input_tar_file}")
         if output_folder:
             print(f"Output folder: {output_folder}")
         print(f"\nConfiguration:")
         print(f"  Diameter method: {diameter_method}")
         print(f"  Verbose output: {verbose}")
         print("=" * 80)
-        print("\nLoading merged file...")
+        print("\nStreaming from archive...")
 
         try:
-            merged_data = load_artery_analysis_compressed(input_merged_file)
+            # Open tar file and get list of pickle files
+            with tarfile.open(input_tar_file, 'r:*') as tar:
+                # Filter for .pkl files
+                pkl_members = [m for m in tar.getmembers() if m.name.endswith('.pkl') and m.isfile()]
+                pkl_members.sort(key=lambda m: m.name)
 
-            # Convert merged data to list of (identifier, data) tuples
-            analysis_items = []
-            for case_name, vessels in merged_data.items():
-                for vessel_type, vessel_data in vessels.items():
-                    identifier = f"{case_name}_{vessel_type}"
-                    analysis_items.append((identifier, vessel_data))
+                print(f"✓ Found {len(pkl_members)} pickle files in archive")
 
-            print(f"✓ Loaded {len(analysis_items)} vessel analyses from merged file")
+                # Create list of (identifier, member) tuples for streaming
+                analysis_items = [(Path(m.name).stem, m) for m in pkl_members]
 
         except Exception as e:
-            print(f"✗ Failed to load merged file: {e}")
+            print(f"✗ Failed to open tar file: {e}")
             import traceback
             traceback.print_exc()
             return {'processed_count': 0, 'failed_count': 0, 'total_files': 0}
@@ -132,6 +136,9 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
         'failed_files': []
     }
 
+    if input_tar_file is not None:
+        processed_tarfile = tarfile.open(input_tar_file, 'r:*')
+
     for file_idx, (identifier, item) in enumerate(analysis_items, 1):
         print(f"\n{'=' * 80}")
         print(f"Processing {file_idx}/{len(analysis_items)}: {identifier}")
@@ -139,9 +146,12 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
 
         try:
             # Load data based on mode
-            if input_merged_file is not None:
-                # Item is already the loaded data dict
-                data = item
+            if input_tar_file is not None:
+                # Item is a tarfile.TarInfo member - extract and load on-the-fly
+                file_obj = processed_tarfile.extractfile(item)
+                if file_obj is None:
+                    raise ValueError(f"Could not extract {item.name} from archive")
+                data = pickle.load(file_obj)
             else:
                 # Item is a filepath, load it
                 data = load_artery_analysis(item)
@@ -373,6 +383,10 @@ def analyze_artery_batch(input_folder=None, input_merged_file=None, output_folde
             print(f"  - {failed['identifier']}: {failed['error']}")
 
     print("=" * 80)
+
+    if input_tar_file is not None:
+        processed_tarfile.close()
+
 
     return results_summary
 

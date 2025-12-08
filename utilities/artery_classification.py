@@ -1,7 +1,3 @@
-import numpy as np
-import networkx as nx
-
-
 def compute_graph_complexity_metrics(graph):
     """
     Computes complexity metrics from an already-constructed vessel graph.
@@ -27,18 +23,15 @@ def compute_graph_complexity_metrics(graph):
             - avg_branching_factor: Average number of children per bifurcation
             - complexity_score: Weighted complexity score
     """
-    # Count bifurcations and endpoints
     num_bifurcations = sum(1 for node in graph.nodes() if graph.out_degree(node) == 2)
     num_endpoints = sum(1 for node in graph.nodes() if graph.out_degree(node) == 0)
     num_edges = graph.number_of_edges()
     num_nodes = graph.number_of_nodes()
 
-    # Calculate total path length
     total_path_length = 0
     for _, _, edge_data in graph.edges(data=True):
         total_path_length += edge_data.get('path_length_mm', 0)
 
-    # Calculate maximum path depth (longest path from origin to any endpoint)
     origin_nodes = [n for n in graph.nodes() if graph.in_degree(n) == 0]
     max_path_depth = 0
 
@@ -62,7 +55,6 @@ def compute_graph_complexity_metrics(graph):
 
         max_path_depth = dfs_max_depth(origin)
 
-    # Calculate average branching factor
     if num_bifurcations > 0:
         avg_branching_factor = num_endpoints / num_bifurcations
     else:
@@ -70,7 +62,6 @@ def compute_graph_complexity_metrics(graph):
 
     # Compute overall complexity score
     # Normalize each metric and weight them
-    # This is a heuristic that can be tuned based on your data
     complexity_score = (
         num_bifurcations * 3.0 +        # Bifurcations are strong indicators
         num_endpoints * 2.0 +            # More endpoints = more complex
@@ -147,9 +138,9 @@ def classify_lca_rca_from_graphs(graphs, verbose=True):
     avg_score = (score_0 + score_1) / 2
     relative_diff = score_diff / avg_score if avg_score > 0 else 0
 
-    if relative_diff > 0.3:
+    if relative_diff > 0.5:
         confidence = 'high'
-    elif relative_diff > 0.15:
+    elif relative_diff > 0.25:
         confidence = 'medium'
     else:
         confidence = 'low'

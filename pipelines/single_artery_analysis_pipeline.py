@@ -30,6 +30,7 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
                           min_branch_length_voxels=None, min_branch_length_mm=None,
                           max_recursion_depth=None,
                           angle_weight=None, diameter_weight=None, path_length_weight=None,
+                          diameter_method=None,
                           output_csv=True, nodes_csv="nodes.csv", edges_csv="edges.csv",
                           config=None, config_path=None, distance_array=None):
     """
@@ -55,6 +56,10 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         angle_weight (float, optional): Weight for angle scoring in branch designation (default 0.15)
         diameter_weight (float, optional): Weight for diameter scoring in branch designation (default 0.25)
         path_length_weight (float, optional): Weight for path length scoring in branch designation (default 0.6)
+        diameter_method (str, optional): Which diameter computation method to use: 'slicing', 'edt', or 'both' (default 'both')
+                                        'slicing' = plane-based slicing method (faster, no distance transform needed)
+                                        'edt' = Euclidean Distance Transform method (requires distance_array)
+                                        'both' = compute both methods for comparison
         output_csv (bool): Whether to output CSV files (default True)
         nodes_csv (str): Output filename for nodes CSV (default "nodes.csv")
         edges_csv (str): Output filename for edges CSV (default "edges.csv")
@@ -62,7 +67,7 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         config_path (str, optional): Path to JSON config file (if config not provided directly)
         distance_array (ndarray, optional): Pre-computed distance transform array. If provided,
                                            skips distance transform computation for efficiency.
-                                           Must match the shape of binary_mask.
+                                           Must match the shape of binary_mask. Required if diameter_method is 'edt' or 'both'.
 
     Returns:
         dict: Dictionary containing:
@@ -106,6 +111,8 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
             diameter_weight = config.get('diameter_weight', 0.25)
         if path_length_weight is None:
             path_length_weight = config.get('path_length_weight', 0.6)
+        if diameter_method is None:
+            diameter_method = config.get('diameter_method', 'both')
 
     # Set defaults if still None
     if min_depth_mm is None:
@@ -129,6 +136,12 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
         diameter_weight = 0.25
     if path_length_weight is None:
         path_length_weight = 0.6
+    if diameter_method is None:
+        diameter_method = 'both'
+
+    # Validate diameter_method
+    if diameter_method not in ['slicing', 'edt', 'both']:
+        raise ValueError(f"diameter_method must be 'slicing', 'edt', or 'both', got: {diameter_method}")
 
     start_time = time.time()
     processing_times = {}
@@ -137,17 +150,23 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     print("ARTERY ANALYSIS PIPELINE - STARTED")
     print("=" * 80)
 
-    # Step 1: Create distance transform (or use pre-computed)
-    if distance_array is None:
-        print("\n[1/9] Creating distance transform from binary mask...")
-        step_start = time.time()
-        distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
-        processing_times['distance_transform'] = time.time() - step_start
-        print(f"      [OK] Distance transform computed in {processing_times['distance_transform']:.3f}s")
+    # Step 1: Create distance transform (or use pre-computed) - only if needed for EDT method
+    compute_edt = diameter_method in ['edt', 'both']
+    if compute_edt:
+        if distance_array is None:
+            print("\n[1/9] Creating distance transform from binary mask...")
+            step_start = time.time()
+            distance_array = create_distance_transform_from_mask(binary_mask, spacing_info)
+            processing_times['distance_transform'] = time.time() - step_start
+            print(f"      [OK] Distance transform computed in {processing_times['distance_transform']:.3f}s")
+        else:
+            print("\n[1/9] Using pre-computed distance transform (skipping computation)...")
+            processing_times['distance_transform'] = 0.0
+            print(f"      [OK] Pre-computed distance transform provided")
     else:
-        print("\n[1/9] Using pre-computed distance transform (skipping computation)...")
+        print("\n[1/9] Skipping distance transform (diameter_method='slicing' - not needed)...")
         processing_times['distance_transform'] = 0.0
-        print(f"      [OK] Pre-computed distance transform provided")
+        print(f"      [OK] Distance transform skipped")
 
     # Step 2: Extract centerline skeleton
     print("\n[2/9] Extracting centerline skeleton using skeletonization...")
@@ -181,8 +200,9 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     # Step 5: Create sparse skeleton graph
     print("\n[5/8] Constructing sparse skeleton graph from centerline...")
     step_start = time.time()
-    sparse_skeleton_graph = skeleton_to_sparse_graph_robust(
+    sparse_skeleton_graph, endpoints, bifurcation_points = skeleton_to_sparse_graph_robust(
         skeleton_binary_mask, bifurcation_points, endpoints,
+        distance_threshold=bypass_threshold,
         min_branch_length_voxels=min_branch_length_voxels,
         min_branch_length_mm=min_branch_length_mm,
         spacing=spacing_info,
@@ -201,27 +221,27 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     processing_times['graph_construction'] = time.time() - step_start
     print(f"      [OK] Graph constructed in {processing_times['graph_construction']:.3f}s")
 
-    # Optional: Remove bypass edges
-    if remove_bypass:
-        print("\n[5b/8] Removing bypass edges at high-degree nodes...")
-        step_start = time.time()
-        initial_edge_count = sparse_skeleton_graph.number_of_edges()
-        sparse_skeleton_graph = remove_bypass_edges(
-            sparse_skeleton_graph,
-            distance_threshold=bypass_threshold,
-            endpoints=endpoints
-        )
-        removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
-        print(f"      --> {removed_edges} edges removed")
-        print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
+    # # Optional: Remove bypass edges
+    # if remove_bypass:
+    #     print("\n[5b/8] Removing bypass edges at high-degree nodes...")
+    #     step_start = time.time()
+    #     initial_edge_count = sparse_skeleton_graph.number_of_edges()
+    #     sparse_skeleton_graph = remove_bypass_edges(
+    #         sparse_skeleton_graph,
+    #         distance_threshold=bypass_threshold,
+    #         endpoints=endpoints
+    #     )
+    #     removed_edges = initial_edge_count - sparse_skeleton_graph.number_of_edges()
+    #     print(f"      --> {removed_edges} edges removed")
+    #     print(f"      --> Graph now has {sparse_skeleton_graph.number_of_nodes()} nodes and {sparse_skeleton_graph.number_of_edges()} edges")
 
         # Check for graph fragmentation after bypass removal
-        num_components = nx.number_connected_components(sparse_skeleton_graph)
-        if num_components > 1:
-            print(f"      [WARNING] Bypass removal fragmented graph into {num_components} disconnected components!")
-            components = list(nx.connected_components(sparse_skeleton_graph))
-            for i, component in enumerate(components):
-                print(f"                Component {i+1}: {len(component)} nodes")
+    num_components = nx.number_connected_components(sparse_skeleton_graph)
+    if num_components > 1:
+        print(f"      [WARNING] Bypass removal fragmented graph into {num_components} disconnected components!")
+        components = list(nx.connected_components(sparse_skeleton_graph))
+        for i, component in enumerate(components):
+            print(f"                Component {i+1}: {len(component)} nodes")
 
         processing_times['bypass_edge_removal'] = time.time() - step_start
         print(f"      [OK] Bypass edges processed in {processing_times['bypass_edge_removal']:.3f}s")
@@ -264,26 +284,25 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     step_start = time.time()
     sparse_skeleton_graph = compute_branch_lengths_of_graph(sparse_skeleton_graph, spacing_info)
 
-    # Method 1: EDT-based diameter (original method using distance transform)
-    print("      --> Computing EDT-based diameters...")
-    sparse_skeleton_graph = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
+    # Conditionally compute diameter based on selected method
+    compute_slicing = diameter_method in ['slicing', 'both']
 
-    # Method 2: Plane-based diameter (new method using perpendicular slices)
-    print("      --> Computing plane-based diameter profiles...")
-    sparse_skeleton_graph = compute_branch_diameters_of_graph_slicing(sparse_skeleton_graph, binary_mask, spacing_info, slice_size=20, resolution=1.0)
-    # edge_count = 0
-    # for edge in sparse_skeleton_graph.edges:
-    #     voxels = sparse_skeleton_graph.edges[edge]['voxels']
-    #     profile = diameter_profile(binary_mask, voxels)
-    #     stats = summarize_profile(profile)
-    #
-    #     sparse_skeleton_graph.edges[edge]['diameter_profile'] = profile
-    #     sparse_skeleton_graph.edges[edge].update(stats)
-    #     edge_count += 1
-    #
-    # print(f"      --> Computed diameters using both methods for {edge_count} branches")
-    print(f"          - EDT method: mean_diameter_edt, median_diameter_edt")
-    print(f"          - Plane method: mean_diameter, median_diameter, min/max/std_diameter")
+    if compute_edt:
+        print("      --> Computing EDT-based diameters...")
+        sparse_skeleton_graph = compute_branch_diameters_of_graph(sparse_skeleton_graph, distance_array)
+
+    if compute_slicing:
+        print("      --> Computing plane-based diameter profiles...")
+        sparse_skeleton_graph = compute_branch_diameters_of_graph_slicing(sparse_skeleton_graph, binary_mask, spacing_info, slice_size=20, resolution=1.0)
+
+    # Print summary of computed methods
+    methods_computed = []
+    if compute_edt:
+        methods_computed.append("EDT method: mean_diameter_edt, median_diameter_edt, diameter_profile_edt")
+    if compute_slicing:
+        methods_computed.append("Plane method: mean_diameter_slicing, median_diameter_slicing, diameter_profile_slicing")
+
+    print(f"          - " + "\n          - ".join(methods_computed))
     processing_times['branch_metrics'] = time.time() - step_start
     print(f"      [OK] Branch metrics computed in {processing_times['branch_metrics']:.3f}s")
 
@@ -292,7 +311,12 @@ def process_single_artery(binary_mask, spacing_info, min_depth_mm=None, max_dept
     step_start = time.time()
     origin_node = determine_origin_node_from_diameter(sparse_skeleton_graph)
     print(f"      --> Origin node identified at: {origin_node}")
-    directed_skeleton_graph = make_directed_graph(sparse_skeleton_graph, origin_node)
+    directed_skeleton_graph = make_directed_graph(
+        sparse_skeleton_graph, origin_node,
+        min_branch_length_voxels=min_branch_length_voxels,
+        min_branch_length_mm=min_branch_length_mm,
+        spacing=spacing_info
+    )
     processing_times['graph_orientation'] = time.time() - step_start
     print(f"      [OK] Directed graph created in {processing_times['graph_orientation']:.3f}s")
 

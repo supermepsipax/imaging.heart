@@ -524,10 +524,11 @@ def validate_lca_branch_length_ratio(lca_graph, spacing_info, tracker, min_ratio
     try:
         branch_stats = extract_main_branch_statistics(lca_graph, spacing_info, artery_type='LCA')
     except Exception as e:
-        tracker.log_critical(
-            "Branch Length Validation",
-            f"Failed to extract main branch statistics: {str(e)}"
-        )
+        if log_critical:
+            tracker.log_critical(
+                "Branch Length Validation",
+                f"Failed to extract main branch statistics: {str(e)}"
+            )
         return False, None, None, None
 
     # Check if LAD and LCx exist

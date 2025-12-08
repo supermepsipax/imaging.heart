@@ -317,7 +317,7 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
     child_1_end_node = edges[1][1]
     child_2_end_node = edges[2][1]
 
-    # Get diameter information
+    # Get diameter information (prefer slicing, fall back to edt)
     if 'mean_diameter_slicing' in edge1_data:
         child_1_diameter = edge1_data['mean_diameter_slicing']
         child_2_diameter = edge2_data['mean_diameter_slicing']
@@ -327,6 +327,7 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
     else:
         raise KeyError(
             f"No diameter information found in edge data. "
+            f"Expected 'mean_diameter_slicing' or 'mean_diameter_edt' attributes. "
             f"Available keys: {list(edge1_data.keys())}"
         )
 

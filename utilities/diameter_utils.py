@@ -49,10 +49,8 @@ def compute_average_diameter_of_branch(distance_array, branch_coordinates):
 
     coordinate_array = np.array(branch_coordinates)
 
-    # Extract radius values at each coordinate along the branch path
     radius_values = distance_array[tuple(coordinate_array.T)]
 
-    # Diameter profile: diameter at each voxel (2 * radius)
     diameter_profile = (radius_values * 2).tolist()
 
     mean_diameter = np.mean(diameter_profile)
@@ -94,6 +92,11 @@ def compute_branch_diameters_of_graph(graph, distance_array):
         updated_graph.edges[edge]["median_diameter_edt"] = median_diameter
         updated_graph.edges[edge]["diameter_profile_edt"] = diameter_profile
 
+        # Store diameter profile start/end coordinates for alignment during edge merging
+        if len(voxel_path) > 0:
+            updated_graph.edges[edge]["diameter_profile_start_coord"] = voxel_path[0]
+            updated_graph.edges[edge]["diameter_profile_end_coord"] = voxel_path[-1]
+
     return updated_graph
 
 
@@ -131,7 +134,6 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
         - Assumes the largest diameter branch is connected to the vessel origin
         - For single-branch cases, the node with higher z-coordinate is selected as origin
     """
-    # Get all endpoint nodes (degree = 1)
     endpoint_nodes = [node for node in graph.nodes() if graph.degree(node) == 1]
 
     # Special case: single branch with two endpoints
@@ -139,13 +141,11 @@ def determine_origin_node_from_diameter(graph, distance_array = None):
     # This commonly occurs in RCA where a single branch might be mislabeled
     if len(endpoint_nodes) == 2 and graph.number_of_edges() == 1:
         node1, node2 = endpoint_nodes
-        # Compare z-coordinates (dim_2, index 2)
         if node1[2] > node2[2]:
             return node1
         else:
             return node2
 
-    # Normal case: use diameter-based approach
     largest_diameter = 0
     largest_edge = None
 
@@ -378,6 +378,12 @@ def compute_branch_diameters_of_graph_slicing(graph, binary_mask, spacing_info, 
         updated_graph.edges[edge]["mean_diameter_slicing"] = mean_diameter
         updated_graph.edges[edge]["median_diameter_slicing"] = median_diameter
         updated_graph.edges[edge]["diameter_profile_slicing"] = diameter_profile
+
+        # Store diameter profile start/end coordinates for alignment during edge merging
+        # (shared across both diameter methods - only set if not already present)
+        if len(voxel_path) > 0 and "diameter_profile_start_coord" not in updated_graph.edges[edge]:
+            updated_graph.edges[edge]["diameter_profile_start_coord"] = voxel_path[0]
+            updated_graph.edges[edge]["diameter_profile_end_coord"] = voxel_path[-1]
 
     return updated_graph
     

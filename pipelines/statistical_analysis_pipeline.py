@@ -137,6 +137,45 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         'failed_files': []
     }
 
+    main_branch_stats = {
+        "total_path_length": [],
+        "tortuosity": [],
+        "mean_diameter": []
+    }
+
+    bifurcation_angle_stats = {
+        "averaged_angle_A": [],
+        "averaged_angle_B": [],
+        "averaged_angle_C": [],
+        "averaged_inflow_angle": []
+    }
+
+    bifurcation_diameter_stats = {
+        "PMV": [],
+        "DMV": [],
+        "side_branch": []
+    }
+
+    branches = ["LAD", "LCx", "RCA"]
+    bifurcations = ["LCx_LAD", "LAD_D1"]
+    conditions = ["Normal", "Diseased"]
+
+    # Create dictionary for all statistics
+    all_stats = {}
+    for condition in conditions:
+        all_stats[condition] = {}
+
+        for branch in branches:
+            all_stats[condition][branch] = {
+                k: [] for k in main_branch_stats.keys()
+            }
+
+        for bifurc in bifurcations:
+            all_stats[condition][bifurc] = {
+                "Angles": {key: [] for key in bifurcation_angle_stats.keys()},
+                "Diameters": {key: [] for key in bifurcation_diameter_stats.keys()}
+            }
+
     if input_tar_file is not None:
         processed_tarfile = tarfile.open(input_tar_file, 'r:*')
 
@@ -259,6 +298,16 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                     graph, spacing, artery_type=artery_type, diameter_method=diameter_method
                 )
 
+                if "Normal" in patient_id:
+                    condition = "Normal"
+                else:
+                    condition = "Diseased"
+
+                for branch_name, stats in main_branches.items():
+                    all_stats[condition][branch_name]['total_path_length'].append(stats['total_path_length'])
+                    all_stats[condition][branch_name]['tortuosity'].append(stats['tortuosity'])
+                    all_stats[condition][branch_name]['mean_diameter'].append(stats['mean_diameter'])
+
                 if verbose:
                     for branch_name, stats in main_branches.items():
                         print(f"\n    {branch_name}:")
@@ -282,6 +331,22 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 bifurcations = extract_bifurcation_statistics(
                     graph, spacing, diameter_method=diameter_method
                 )
+
+                if bifurcations:
+                    for bifurc_name, bifurc_data in bifurcations.items():
+
+                        if bifurc_name not in all_stats[condition]:
+                            continue
+
+                        angles = bifurc_data['angles']
+                        diameters = bifurc_data['diameters']
+
+                        for angle_key, angle_value in angles.items():
+                            all_stats[condition][bifurc_name]["Angles"][angle_key].append(angle_value)
+                        
+                        for diam_key, diam_value in diameters.items():
+                            all_stats[condition][bifurc_name]["Diameters"][diam_key].append(diam_value)
+                        
 
                 if verbose:
                     if bifurcations:
@@ -426,6 +491,28 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 'error': str(e)
             })
             results_summary['failed_count'] += 1
+
+    # Compute averages for each list in the dictionary all_stats
+    all_stats_avg = {}
+    for condition, branches_data in all_stats.items():
+        all_stats_avg[condition] = {}
+
+        for branch_name, metrics in branches_data.items():
+            all_stats_avg[condition][branch_name] = {}
+
+            # Check if branch has bifurcation metrics
+            if "Angles" in metrics and "Diameters" in metrics:
+                all_stats_avg[condition][branch_name]["Angles"] = {
+                    key: np.mean(value) for key, value in metrics["Angles"].items()
+                }
+                all_stats_avg[condition][branch_name]["Diameters"] = {
+                    key: np.mean(value) for key, value in metrics["Diameters"].items()
+                }
+            else:
+                # Main branch
+                all_stats_avg[condition][branch_name] = {
+                    key: np.mean(value) for key, value in metrics.items()
+                }
 
     print("\n" + "=" * 80)
     print("BATCH ANALYSIS COMPLETE - SUMMARY")

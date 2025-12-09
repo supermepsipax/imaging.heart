@@ -9,6 +9,7 @@ from analysis import (
     extract_main_branch_statistics,
     extract_all_branch_statistics,
     extract_bifurcation_statistics,
+    extract_trifurcation_statistics,
     compute_branch_tapering
 )
 from collections import defaultdict
@@ -312,6 +313,60 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             except Exception as e:
                 if verbose:
                     print(f"    [ERROR] Failed to extract bifurcation statistics: {str(e)}")
+
+            # Trifurcation statistics (LCA only)
+            if verbose and artery_type.upper() == 'LCA':
+                print(f"\n  [Trifurcation Statistics]")
+            try:
+                if artery_type.upper() == 'LCA':
+                    trifurcations = extract_trifurcation_statistics(
+                        graph, spacing, min_depth_mm=2.0, max_depth_mm=7.0, step_mm=0.5,
+                        diameter_method=diameter_method
+                    )
+
+                    if verbose:
+                        if trifurcations:
+                            for trifurc_name, trifurc_data in trifurcations.items():
+                                print(f"\n    {trifurc_name}:")
+                                print(f"      Type: {trifurc_data['type']}")
+                                print(f"      Branches: {', '.join(trifurc_data['branches'])}")
+
+                                main_angles = trifurc_data['main_plane_angles']
+                                print(f"      Main plane angles (parent-LAD-LCx):")
+                                if main_angles['averaged_angle_A_main'] is not None:
+                                    print(f"        Angle A (parent-LCx):     {main_angles['averaged_angle_A_main']:.1f}°")
+                                if main_angles['averaged_angle_B_main'] is not None:
+                                    print(f"        Angle B (LAD-LCx):        {main_angles['averaged_angle_B_main']:.1f}°")
+                                if main_angles['averaged_angle_C_main'] is not None:
+                                    print(f"        Angle C (parent-LAD):     {main_angles['averaged_angle_C_main']:.1f}°")
+                                if main_angles['averaged_inflow_angle'] is not None:
+                                    print(f"        Inflow angle:             {main_angles['averaged_inflow_angle']:.1f}°")
+
+                                add_angles = trifurc_data['additional_angles']
+                                print(f"      Additional angles:")
+                                if add_angles['averaged_angle_B1'] is not None:
+                                    print(f"        B1 (LCx-Ramus):           {add_angles['averaged_angle_B1']:.1f}°")
+                                if add_angles['averaged_angle_B2'] is not None:
+                                    print(f"        B2 (LAD-Ramus):           {add_angles['averaged_angle_B2']:.1f}°")
+
+                                diameters = trifurc_data['diameters']
+                                print(f"      Diameters:")
+                                if diameters['parent'] is not None:
+                                    print(f"        Parent:  {diameters['parent']:.2f} mm")
+                                if diameters['LAD'] is not None:
+                                    print(f"        LAD:     {diameters['LAD']:.2f} mm")
+                                if diameters['LCx'] is not None:
+                                    print(f"        LCx:     {diameters['LCx']:.2f} mm")
+                                if diameters['Ramus'] is not None:
+                                    print(f"        Ramus:   {diameters['Ramus']:.2f} mm")
+
+                                print(f"      Number of measurements: {trifurc_data['num_measurements']}")
+                        else:
+                            print(f"    No trifurcation found (LAD/LCx/Ramus not all present)")
+
+            except Exception as e:
+                if verbose:
+                    print(f"    [ERROR] Failed to extract trifurcation statistics: {str(e)}")
 
             if verbose:
                 print(f"\n  [All Branch Statistics]")

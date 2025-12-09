@@ -9,7 +9,7 @@
 # ==============================================================================
 # Specify EITHER input_folder OR input_tar_file (not both)
 
-input_folder: "results/to_test"
+# input_folder: "results/to_test"
 # Directory containing individual processed pickle files (*_analysis.pkl)
 # from the batch artery analysis pipeline. Each pickle file contains the
 # complete graph, diameter profiles, spacing info, and metadata for one artery.
@@ -17,7 +17,7 @@ input_folder: "results/to_test"
 # Use this option when analyzing individual files directly.
 # Comment out this line if using input_tar_file instead.
 
-# input_tar_file: "results/to_test/to_test_archive.tar.gz"
+input_tar_file: "results/to_test/to_test_archive.tar.gz"
 # Path to a tar archive containing multiple artery analysis files.
 # This file is created at the end of batch processing using archive_artery_analyses()
 # or the archive option when prompted after batch processing completes.

@@ -709,6 +709,252 @@ def compute_angles_at_bifurcation_legacy(bifurcation_node, directed_graph, spaci
     return result
 
 
+def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_info,
+                                    min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
+    """
+    Computes all angles at a trifurcation node (e.g., LCA splitting into LAD, LCx, and Ramus).
+
+    Unlike bifurcations, trifurcations require calculating angles across three planes:
+    1. Main plane (parent + LAD + LCx): Standard A, B, C, and inflow angles
+    2. LAD-Ramus plane: B1 angle between LAD and Ramus
+    3. LCx-Ramus plane: B2 angle between LCx and Ramus
+
+    Args:
+        trifurcation_node (tuple): The coordinate of the trifurcation point
+        directed_graph (nx.DiGraph): The directed graph with 'voxels' edge attributes
+        spacing_info (tuple): Voxel spacing in mm for each dimension
+        min_depth_mm (float): Minimum depth for averaging (default 5.0 mm)
+        max_depth_mm (float): Maximum depth for averaging (default 10.0 mm)
+        step_mm (float): Step size for depth increments (default 0.5 mm)
+
+    Returns:
+        dict: Dictionary containing:
+            - Main plane angles (treating as bifurcation ignoring Ramus):
+              - 'averaged_angle_A_main': parent-LCx angle
+              - 'averaged_angle_B_main': LAD-LCx angle
+              - 'averaged_angle_C_main': parent-LAD angle
+              - 'averaged_inflow_angle': parent vessel 3D angle with plane
+            - Additional trifurcation angles:
+              - 'averaged_angle_B1': LCx-Ramus angle
+              - 'averaged_angle_B2': LAD-Ramus angle
+            - Standard deviations for all angles
+            - 'depth_measurements': List of measurements at each depth
+            - 'num_measurements': Number of valid depth measurements
+    """
+    in_edges = list(directed_graph.in_edges(trifurcation_node, data=True))
+    out_edges = list(directed_graph.out_edges(trifurcation_node, data=True))
+
+    # Validate trifurcation structure (1 parent, 3 children)
+    if len(in_edges) != 1 or len(out_edges) != 3:
+        print(f"      [ERROR] Node {trifurcation_node} is not a trifurcation (in={len(in_edges)}, out={len(out_edges)})")
+        return None
+
+    parent_edge = in_edges[0]
+    parent_voxels = list(parent_edge[2]['voxels'])
+    if parent_voxels[0] == trifurcation_node:
+        parent_voxels = list(reversed(parent_voxels))
+    elif parent_voxels[-1] != trifurcation_node:
+        return None
+
+    child_edges = out_edges
+    child_voxel_paths = []
+    child_labels = []
+
+    for edge in child_edges:
+        voxels = list(edge[2]['voxels'])
+        if voxels[-1] == trifurcation_node:
+            voxels = list(reversed(voxels))
+        elif voxels[0] != trifurcation_node:
+            return None
+        child_voxel_paths.append(voxels)
+
+        # Get branch label to identify LAD, LCx, Ramus
+        edge_data = edge[2]
+        if 'lca_branch' in edge_data:
+            label = edge_data['lca_branch']
+        elif 'branch_label' in edge_data:
+            label = edge_data['branch_label']
+        else:
+            label = 'unknown'
+        child_labels.append(label)
+
+    lad_idx = None
+    lcx_idx = None
+    ramus_idx = None
+
+    for i, label in enumerate(child_labels):
+        if label == 'LAD':
+            lad_idx = i
+        elif label == 'LCx' or label == 'LCX':
+            lcx_idx = i
+        elif label == 'Ramus' or label.startswith('R') and len(label) > 1:
+            ramus_idx = i
+
+    if lad_idx is None or lcx_idx is None or ramus_idx is None:
+        print(f"      [ERROR] Could not identify all three branches (LAD, LCx, Ramus) at {trifurcation_node}")
+        print(f"              Found labels: {child_labels}")
+        return None
+
+    depth_measurements = []
+    depths = np.arange(min_depth_mm, max_depth_mm + step_mm, step_mm)
+
+    short_branches_reported = set()
+
+    for depth in depths:
+        try:
+            parent_points, parent_dist = move_along_centerline(parent_voxels, depth, spacing_info)
+            lad_points, lad_dist = move_along_centerline(child_voxel_paths[lad_idx], depth, spacing_info)
+            lcx_points, lcx_dist = move_along_centerline(child_voxel_paths[lcx_idx], depth, spacing_info)
+            ramus_points, ramus_dist = move_along_centerline(child_voxel_paths[ramus_idx], depth, spacing_info)
+
+            # Handle short branches by using all available voxels
+            for i, (points, distance, voxels, branch_name) in enumerate([
+                (parent_points, parent_dist, parent_voxels, 'parent'),
+                (lad_points, lad_dist, child_voxel_paths[lad_idx], 'LAD'),
+                (lcx_points, lcx_dist, child_voxel_paths[lcx_idx], 'LCx'),
+                (ramus_points, ramus_dist, child_voxel_paths[ramus_idx], 'Ramus')
+            ]):
+                if distance < depth and len(voxels) >= 2:
+                    branch_key = f"{branch_name}_{i}"
+                    if branch_key not in short_branches_reported:
+                        print(f"      [INFO] Trifurcation {trifurcation_node}: {branch_name} branch too short ({distance:.2f}mm < {depth:.2f}mm)")
+                        print(f"              Using all {len(voxels)} available voxels")
+                        short_branches_reported.add(branch_key)
+                    if i == 0:
+                        parent_points = parent_voxels
+                    elif i == 1:
+                        lad_points = child_voxel_paths[lad_idx]
+                    elif i == 2:
+                        lcx_points = child_voxel_paths[lcx_idx]
+                    elif i == 3:
+                        ramus_points = child_voxel_paths[ramus_idx]
+
+            if len(parent_points) < 2 or len(lad_points) < 2 or len(lcx_points) < 2 or len(ramus_points) < 2:
+                continue
+
+            # ========================================================================
+            # MAIN PLANE: Parent + LAD + LCx (ignoring Ramus)
+            # ========================================================================
+            main_plane_points = parent_points + lad_points + lcx_points
+            plane_normal_main, plane_point_main = fit_bifurcation_plane(main_plane_points, spacing_info)
+
+            inflow_angle_main = compute_inflow_angle(parent_points, plane_normal_main, spacing_info)
+
+            main_angles = compute_bifurcation_angles(
+                [parent_points, lad_points, lcx_points],
+                plane_normal_main,
+                spacing_info
+            )
+
+            if len(main_angles) != 3:
+                continue
+
+            angle_C_main = main_angles[0]  # parent-LAD
+            angle_B_main = main_angles[1]  # LAD-LCx
+            angle_A_main = main_angles[2]  # parent-LCx
+
+            # ========================================================================
+            # LCX-RAMUS PLANE (for B1)
+            # ========================================================================
+            lcx_ramus_points = lcx_points + ramus_points
+            plane_normal_lcx_ramus, _ = fit_bifurcation_plane(lcx_ramus_points, spacing_info)
+
+            lcx_array = np.array(lcx_points) * np.array(spacing_info)
+            ramus_array = np.array(ramus_points) * np.array(spacing_info)
+
+            lcx_dir = lcx_array[-1] - lcx_array[0]
+            lcx_dir = lcx_dir / np.linalg.norm(lcx_dir)
+
+            ramus_dir = ramus_array[-1] - ramus_array[0]
+            ramus_dir = ramus_dir / np.linalg.norm(ramus_dir)
+
+            lcx_proj = lcx_dir - np.dot(lcx_dir, plane_normal_lcx_ramus) * plane_normal_lcx_ramus
+            lcx_proj = lcx_proj / np.linalg.norm(lcx_proj)
+
+            ramus_proj = ramus_dir - np.dot(ramus_dir, plane_normal_lcx_ramus) * plane_normal_lcx_ramus
+            ramus_proj = ramus_proj / np.linalg.norm(ramus_proj)
+
+            cos_B1 = np.dot(lcx_proj, ramus_proj)
+            angle_B1_rad = np.arccos(np.clip(cos_B1, -1.0, 1.0))
+            angle_B1 = np.degrees(angle_B1_rad)
+
+            # ========================================================================
+            # LAD-RAMUS PLANE (for B2)
+            # ========================================================================
+            lad_ramus_points = lad_points + ramus_points
+            plane_normal_lad_ramus, _ = fit_bifurcation_plane(lad_ramus_points, spacing_info)
+
+            lad_array = np.array(lad_points) * np.array(spacing_info)
+
+            lad_dir = lad_array[-1] - lad_array[0]
+            lad_dir = lad_dir / np.linalg.norm(lad_dir)
+
+
+            lad_proj = lad_dir - np.dot(lad_dir, plane_normal_lad_ramus) * plane_normal_lad_ramus
+            lad_proj = lad_proj / np.linalg.norm(lad_proj)
+
+            ramus_proj_lad = ramus_dir - np.dot(ramus_dir, plane_normal_lad_ramus) * plane_normal_lad_ramus
+            ramus_proj_lad = ramus_proj_lad / np.linalg.norm(ramus_proj_lad)
+
+            cos_B2 = np.dot(lad_proj, ramus_proj_lad)
+            angle_B2_rad = np.arccos(np.clip(cos_B2, -1.0, 1.0))
+            angle_B2 = np.degrees(angle_B2_rad)
+
+            depth_measurements.append({
+                'depth': depth,
+                'inflow_angle_main': inflow_angle_main,
+                'angle_A_main': angle_A_main,
+                'angle_B_main': angle_B_main,
+                'angle_C_main': angle_C_main,
+                'angle_B1': angle_B1,  # LAD-Ramus
+                'angle_B2': angle_B2   # LCx-Ramus
+            })
+
+        except Exception as e:
+            print(f"      [WARNING] Error at depth {depth}mm: {str(e)}")
+            continue
+
+    if len(depth_measurements) == 0:
+        print(f"      [ERROR] No valid angle measurements at trifurcation {trifurcation_node}")
+        return None
+
+    inflow_angles_main = [m['inflow_angle_main'] for m in depth_measurements if m['inflow_angle_main'] is not None]
+    angles_A_main = [m['angle_A_main'] for m in depth_measurements if m['angle_A_main'] is not None]
+    angles_B_main = [m['angle_B_main'] for m in depth_measurements if m['angle_B_main'] is not None]
+    angles_C_main = [m['angle_C_main'] for m in depth_measurements if m['angle_C_main'] is not None]
+    angles_B1 = [m['angle_B1'] for m in depth_measurements if m['angle_B1'] is not None]
+    angles_B2 = [m['angle_B2'] for m in depth_measurements if m['angle_B2'] is not None]
+
+    result = {
+        'trifurcation_node': trifurcation_node,
+        # Main plane angles (parent-LAD-LCx)
+        'averaged_inflow_angle': np.mean(inflow_angles_main) if inflow_angles_main else None,
+        'averaged_angle_A_main': np.mean(angles_A_main) if angles_A_main else None,  # parent-LAD
+        'averaged_angle_B_main': np.mean(angles_B_main) if angles_B_main else None,  # LAD-LCx
+        'averaged_angle_C_main': np.mean(angles_C_main) if angles_C_main else None,  # parent-LCx
+        # Additional trifurcation angles
+        'averaged_angle_B1': np.mean(angles_B1) if angles_B1 else None,  # LAD-Ramus
+        'averaged_angle_B2': np.mean(angles_B2) if angles_B2 else None,  # LCx-Ramus
+        # Standard deviations
+        'std_inflow_angle': np.std(inflow_angles_main) if inflow_angles_main else None,
+        'std_angle_A_main': np.std(angles_A_main) if angles_A_main else None,
+        'std_angle_B_main': np.std(angles_B_main) if angles_B_main else None,
+        'std_angle_C_main': np.std(angles_C_main) if angles_C_main else None,
+        'std_angle_B1': np.std(angles_B1) if angles_B1 else None,
+        'std_angle_B2': np.std(angles_B2) if angles_B2 else None,
+        # Metadata
+        'depth_measurements': depth_measurements,
+        'num_measurements': len(depth_measurements),
+        'branch_indices': {
+            'LAD': lad_idx,
+            'LCx': lcx_idx,
+            'Ramus': ramus_idx
+        }
+    }
+
+    return result
+
+
 def traverse_graph_and_compute_angles(directed_graph, spacing_info,
                                       min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5,
                                       angle_weight=0.15, diameter_weight=0.25, path_length_weight=0.6):

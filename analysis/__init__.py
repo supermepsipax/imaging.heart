@@ -11,6 +11,7 @@ from .branch_statistics import (
     extract_main_branch_statistics,
     extract_all_branch_statistics,
     extract_bifurcation_statistics,
+    extract_trifurcation_statistics,
     compute_branch_tapering
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     'extract_main_branch_statistics',
     'extract_all_branch_statistics',
     'extract_bifurcation_statistics',
+    'extract_trifurcation_statistics',
     'compute_branch_tapering',
 ]

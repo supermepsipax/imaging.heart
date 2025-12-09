@@ -6,13 +6,13 @@ from utilities import (
     sort_labelled_bodies_by_size,
     resample_to_isotropic,
 )
-from visualizations import create_projection_view, visualize_3d_graph
+from visualizations import create_projection_view, visualize_3d_graph, visualize_binary_mask
 from pipelines import process_single_artery
 import numpy as np
 
 # I'm loading the data here for a single file, it gets loaded into 3d numpy array, and
 # a seperate header dictionary with information about the data
-path = "data/batch_2/Normal_11.nrrd"
+path = "data/batch_2/Normal_15.nrrd"
 binary_mask, header = load_nrrd_mask(path, verbose=True)
 
 # Here I'm extracting the spacing/direction information from the header data
@@ -45,12 +45,7 @@ create_projection_view(binary_mask)
 result = process_single_artery(
     binary_mask=original_one_sided_mask,
     spacing_info=spacing_info,
-    min_depth_mm=2.0,
-    max_depth_mm=7.0,
-    step_mm=0.5,
-    output_csv=True,
-    nodes_csv="nodes.csv",
-    edges_csv="edges.csv"
+    config_path='process_config.yaml'
 )
 
 # Extract the final graph from the result
@@ -58,4 +53,7 @@ final_graph = result['final_graph']
 sparse_graph = result['sparse_graph']
 
 # Visualize the results
-visualize_3d_graph(final_graph, original_one_sided_mask)
+visualize_3d_graph(sparse_graph, original_one_sided_mask, dark_mode=True, hide_background=True)
+
+# Visualize just the binary mask
+visualize_binary_mask(original_one_sided_mask, dark_mode=True, hide_background=True)

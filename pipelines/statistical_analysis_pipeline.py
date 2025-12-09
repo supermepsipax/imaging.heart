@@ -267,6 +267,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         print(f"      Tortuosity:           {stats['tortuosity']:.3f}")
                         print(f"      Mean diameter:        {stats['mean_diameter']:.2f} mm")
                         print(f"      Number of segments:   {stats['num_edges']}")
+                        print(f"      Diameter Profile:   {stats['diameter_profile']}")
 
                     if not main_branches:
                         print(f"    No main branches found")

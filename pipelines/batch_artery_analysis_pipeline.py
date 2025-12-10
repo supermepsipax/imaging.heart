@@ -10,6 +10,8 @@ from utilities import (
     sort_labelled_bodies_by_size,
     resample_to_isotropic,
     load_config,
+    extract_anatomical_info,
+    classify_lca_rca_from_spatial_position,
     classify_lca_rca_from_graphs,
     create_distance_transform_from_mask,
     annotate_lca_graph_with_branch_labels,
@@ -195,6 +197,14 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             print(f"          Original shape: {binary_mask.shape}")
             print(f"          Original spacing: {spacing_info}")
 
+            # Extract anatomical orientation information
+            anatomical_info = extract_anatomical_info(header)
+            if anatomical_info and 'space' in anatomical_info:
+                print(f"          Coordinate system: {anatomical_info['space']}")
+                print(f"          Axis directions: {anatomical_info.get('axis_labels', 'unknown')}")
+            else:
+                print(f"          [WARNING] Could not extract anatomical orientation info")
+
             print(f"[Resampling] Converting to isotropic spacing...")
             binary_mask, spacing_info = resample_to_isotropic(binary_mask, spacing_info)
             print(f"             New shape: {binary_mask.shape}")
@@ -300,12 +310,18 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 processing_results.append(result)
                 print(f"  [OK] Vessel {body_idx + 1} processed successfully")
 
-            classification = classify_lca_rca_from_graphs(graphs, verbose=True)
+            # Try spatial classification first (more reliable), fall back to complexity-based
+            classification = classify_lca_rca_from_spatial_position(body_masks, anatomical_info, verbose=True)
+
+            if classification is None:
+                print(f"  [INFO] Spatial classification not available - falling back to complexity-based method")
+                classification = classify_lca_rca_from_graphs(graphs, verbose=True)
             lca_index = classification['lca_index']
             rca_index = classification['rca_index']
             original_lca_index = lca_index  # Store original for potential revert
             original_rca_index = rca_index
             classification_confidence = classification.get('confidence', 'UNKNOWN')  # Store confidence
+            classification_method = classification.get('method', 'unknown')  # Store method (spatial_position or complexity)
 
             lca_tracker = VesselErrorTracker(nrrd_file.name, 'LCA')
             rca_tracker = VesselErrorTracker(nrrd_file.name, 'RCA')
@@ -315,6 +331,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             graphs[lca_index] = annotate_lca_graph_with_branch_labels(
                 graphs[lca_index],
                 spacing_info,
+                anatomical_info=anatomical_info,
                 trifurcation_threshold_mm=lca_trifurcation_threshold_mm
             )
 
@@ -352,8 +369,21 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             else:
                 print(f"  [LCA] ✗ Branch length ratio failed (LAD={lad_len:.1f}mm, LCx={lcx_len:.1f}mm, ratio={ratio:.3f} < {min_lca_branch_length_ratio:.3f})")
 
+                # Check if classification was done spatially - if so, ratio failure is likely anatomical variation
+                if classification_method == 'spatial_position':
+                    print(f"  [!] Classification was SPATIALLY validated (anatomical position)")
+                    print(f"  [!] Unusual ratio likely indicates anatomical variation, not misclassification")
+                    print(f"  [NOTE] Common variants: short LCx, dominant LAD, or LCx terminating early")
+                    print(f"  [✓] Keeping spatial classification - logging as WARNING (not critical)")
+
+                    # Log as warning (not critical) so vessel will still be saved
+                    lca_tracker.log_warning(
+                        "LCA Branch Length Ratio",
+                        f"Unusual LAD/LCx ratio ({ratio:.3f} < {min_lca_branch_length_ratio:.3f}) - "
+                        f"likely anatomical variation. LAD={lad_len:.1f}mm, LCx={lcx_len:.1f}mm"
+                    )
                 # Check if original classification had HIGH confidence - be conservative about swapping
-                if classification_confidence and classification_confidence.upper() == 'HIGH':
+                elif classification_confidence and classification_confidence.upper() == 'HIGH':
                     print(f"  [!] Original classification had HIGH confidence ({classification_confidence})")
                     print(f"  [!] Branch length ratio is close to threshold - keeping original classification")
                     print(f"  [NOTE] This may indicate anatomical variation (e.g., short LCx, dominant LAD)")
@@ -376,6 +406,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                         swapped_lca_graph = annotate_lca_graph_with_branch_labels(
                             graphs[lca_index],
                             spacing_info,
+                            anatomical_info=anatomical_info,
                             trifurcation_threshold_mm=lca_trifurcation_threshold_mm
                         )
 
@@ -397,6 +428,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                             graphs[lca_index] = annotate_lca_graph_with_branch_labels(
                                 graphs[lca_index],
                                 spacing_info,
+                                anatomical_info=anatomical_info,
                                 trifurcation_threshold_mm=lca_trifurcation_threshold_mm
                             )
                             graphs[rca_index] = annotate_rca_graph_with_branch_labels(graphs[rca_index])
@@ -456,6 +488,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                                 graphs[lca_index] = annotate_lca_graph_with_branch_labels(
                                     graphs[lca_index],
                                     spacing_info,
+                                    anatomical_info=anatomical_info,
                                     trifurcation_threshold_mm=lca_trifurcation_threshold_mm
                                 )
                                 graphs[rca_index] = annotate_rca_graph_with_branch_labels(graphs[rca_index])
@@ -485,6 +518,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                         graphs[lca_index] = annotate_lca_graph_with_branch_labels(
                             graphs[lca_index],
                             spacing_info,
+                            anatomical_info=anatomical_info,
                             trifurcation_threshold_mm=lca_trifurcation_threshold_mm
                         )
                         graphs[rca_index] = annotate_rca_graph_with_branch_labels(graphs[rca_index])

@@ -1,3 +1,119 @@
+import numpy as np
+
+
+def classify_lca_rca_from_spatial_position(body_masks, anatomical_info, verbose=True):
+    """
+    Classifies two vessel masks as LCA or RCA based on spatial position (left vs right).
+
+    Uses anatomical orientation information from NRRD header to determine which vessel
+    is positioned more to the left (LCA) vs right (RCA).
+
+    This method is more reliable than complexity-based classification when anatomical
+    orientation is available.
+
+    Args:
+        body_masks (list): List of 2 binary masks (numpy arrays)
+        anatomical_info (dict): Anatomical orientation info from extract_anatomical_info()
+        verbose (bool): If True, print classification details
+
+    Returns:
+        dict: Classification results containing:
+            - lca_index: Index of the mask classified as LCA (0 or 1)
+            - rca_index: Index of the mask classified as RCA (0 or 1)
+            - method: 'spatial_position'
+            - confidence: Always 'high' for spatial classification
+            - lca_centroid: Centroid coordinates of LCA
+            - rca_centroid: Centroid coordinates of RCA
+
+        Returns None if left-right axis cannot be determined from anatomical_info
+    """
+    if len(body_masks) != 2:
+        raise ValueError(f"Expected 2 masks, got {len(body_masks)}")
+
+    if anatomical_info is None or 'axis_directions' not in anatomical_info:
+        return None
+
+    # Find which axis corresponds to left-right
+    axis_directions = anatomical_info['axis_directions']
+    left_axis = None
+    left_sign = None
+
+    for idx, direction in enumerate(axis_directions):
+        direction_lower = direction.lower()
+        if direction_lower == 'left':
+            left_axis = idx
+            left_sign = +1  # Positive values mean left
+            break
+        elif direction_lower == 'right':
+            left_axis = idx
+            left_sign = -1  # Negative values mean left (positive is right)
+            break
+
+    if left_axis is None:
+        if verbose:
+            print(f"[Spatial Classification] Cannot determine left-right axis from anatomical info")
+        return None
+
+    if verbose:
+        print(f"\n[Spatial Classification] Using spatial position to classify LCA/RCA")
+        print(f"                         Left-right axis: {left_axis} ({'left' if left_sign > 0 else 'right'} is positive)")
+        print(f"                         Coordinate system: {anatomical_info.get('space', 'unknown')}")
+
+    # Compute centroids for both masks
+    centroids = []
+    for i, mask in enumerate(body_masks):
+        # Get coordinates of all voxels in this mask
+        coords = np.argwhere(mask > 0)
+
+        if len(coords) == 0:
+            raise ValueError(f"Mask {i} is empty")
+
+        # Compute centroid (mean position)
+        centroid = np.mean(coords, axis=0)
+        centroids.append(centroid)
+
+        if verbose:
+            print(f"  Vessel {i+1} centroid: {centroid}")
+
+    # Compare positions along left-right axis
+    # Higher "left component" = more to the left = LCA
+    left_component_0 = left_sign * centroids[0][left_axis]
+    left_component_1 = left_sign * centroids[1][left_axis]
+
+    if verbose:
+        print(f"  Vessel 1 left-component: {left_component_0:.2f}")
+        print(f"  Vessel 2 left-component: {left_component_1:.2f}")
+
+    # Vessel with higher left component is LCA
+    if left_component_0 > left_component_1:
+        lca_index = 0
+        rca_index = 1
+        lca_centroid = centroids[0]
+        rca_centroid = centroids[1]
+    else:
+        lca_index = 1
+        rca_index = 0
+        lca_centroid = centroids[1]
+        rca_centroid = centroids[0]
+
+    if verbose:
+        print(f"\n  Classification result:")
+        print(f"    Vessel {lca_index+1} → LCA (more to the left)")
+        print(f"    Vessel {rca_index+1} → RCA (more to the right)")
+        print(f"    Confidence: HIGH (spatial positioning is definitive)")
+
+    return {
+        'lca_index': lca_index,
+        'rca_index': rca_index,
+        'method': 'spatial_position',
+        'confidence': 'high',
+        'lca_centroid': lca_centroid,
+        'rca_centroid': rca_centroid,
+        'left_axis': left_axis,
+        'left_sign': left_sign
+    }
+
+
 def compute_graph_complexity_metrics(graph):
     """
     Computes complexity metrics from an already-constructed vessel graph.
@@ -85,6 +201,9 @@ def classify_lca_rca_from_graphs(graphs, verbose=True):
     """
     Classifies two vessel graphs as LCA or RCA based on complexity metrics.
 
+    DEPRECATED: This complexity-based approach is less reliable than spatial classification.
+    Use classify_lca_rca_from_spatial_position() when anatomical orientation is available.
+
     The LCA (Left Coronary Artery) typically has:
     - More complex branching pattern (bifurcates into LAD and LCX)
     - More bifurcations and endpoints
@@ -105,13 +224,15 @@ def classify_lca_rca_from_graphs(graphs, verbose=True):
             - rca_index: Index of the graph classified as RCA (0 or 1)
             - lca_metrics: Complexity metrics for LCA
             - rca_metrics: Complexity metrics for RCA
+            - method: 'complexity'
             - confidence: Classification confidence ('high', 'medium', 'low')
     """
     if len(graphs) != 2:
         raise ValueError(f"Expected 2 graphs, got {len(graphs)}")
 
     if verbose:
-        print(f"\n[Classification] Analyzing vessel complexity to differentiate LCA/RCA...")
+        print(f"\n[Complexity Classification] Analyzing vessel complexity to differentiate LCA/RCA...")
+        print(f"                            NOTE: Spatial classification is more reliable when available")
 
     # Compute metrics for both graphs
     metrics_list = []
@@ -172,5 +293,6 @@ def classify_lca_rca_from_graphs(graphs, verbose=True):
         'rca_index': rca_index,
         'lca_metrics': lca_metrics,
         'rca_metrics': rca_metrics,
+        'method': 'complexity',
         'confidence': confidence
     }

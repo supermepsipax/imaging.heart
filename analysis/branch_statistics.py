@@ -157,6 +157,9 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         # Create bifurcation identifier key
         # Format: MainBranch_SideBranch (e.g., 'LAD_D1', 'LCx_OM2')
         bifurcation_key = f"{main_label}_{side_label}"
+        
+        if bifurcation_key == "LCx_LAD":
+            bifurcation_key = "LAD_LCx"
 
         angle_A = node_data.get('averaged_angle_A', None)
         angle_B = node_data.get('averaged_angle_B', None)

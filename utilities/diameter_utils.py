@@ -3,6 +3,7 @@ import networkx as nx
 from scipy import ndimage
 from scipy.ndimage import distance_transform_edt, map_coordinates
 from skimage import measure
+
 def create_distance_transform_from_mask(binary_mask, space_information=None):
     """
     Computes the Euclidean distance transform of a binary mask.
@@ -92,7 +93,6 @@ def compute_branch_diameters_of_graph(graph, distance_array):
         updated_graph.edges[edge]["median_diameter_edt"] = median_diameter
         updated_graph.edges[edge]["diameter_profile_edt"] = diameter_profile
 
-        # Store diameter profile start/end coordinates for alignment during edge merging
         if len(voxel_path) > 0:
             updated_graph.edges[edge]["diameter_profile_start_coord"] = voxel_path[0]
             updated_graph.edges[edge]["diameter_profile_end_coord"] = voxel_path[-1]

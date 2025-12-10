@@ -3,6 +3,55 @@ import networkx as nx
 import re
 
 
+def get_anatomical_axis_info(anatomical_info, axis_name):
+    """
+    Gets the axis index and direction multiplier for a given anatomical axis.
+
+    Args:
+        anatomical_info (dict): Anatomical info from extract_anatomical_info()
+        axis_name (str): Anatomical axis to find (e.g., 'anterior', 'superior', 'left')
+
+    Returns:
+        tuple: (axis_index, multiplier) where:
+            - axis_index: Which array axis (0, 1, or 2) corresponds to this direction
+            - multiplier: +1 if positive values mean this direction, -1 if negative
+
+        Returns (None, None) if axis not found
+
+    Example:
+        For LPS coordinate system with axis_directions=['left', 'posterior', 'superior']:
+        - get_anatomical_axis_info(info, 'anterior') → (1, -1)
+          (axis 1, negative direction)
+        - get_anatomical_axis_info(info, 'superior') → (2, +1)
+          (axis 2, positive direction)
+    """
+    if 'axis_directions' not in anatomical_info:
+        return None, None
+
+    axis_directions = anatomical_info['axis_directions']
+    axis_name_lower = axis_name.lower()
+
+    # Define opposite directions
+    opposites = {
+        'left': 'right', 'right': 'left',
+        'anterior': 'posterior', 'posterior': 'anterior',
+        'superior': 'inferior', 'inferior': 'superior'
+    }
+
+    # Check each axis
+    for idx, direction in enumerate(axis_directions):
+        direction_lower = direction.lower()
+
+        if direction_lower == axis_name_lower:
+            # This axis increases in the desired direction
+            return idx, +1
+        elif direction_lower == opposites.get(axis_name_lower):
+            # This axis increases in the opposite direction
+            return idx, -1
+
+    return None, None
+
+
 def compute_direction_vector(start_node, end_node, spacing_info):
     """
     Computes a direction vector from start to end node in physical coordinates.
@@ -618,12 +667,13 @@ def is_side_branch(edge_position, parent_edge_position):
     return last_digit_child > last_digit_parent
 
 
-def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_threshold_mm=5.0):
+def annotate_lca_graph_with_branch_labels(graph, spacing_info, anatomical_info=None,
+                                            trifurcation_threshold_mm=5.0):
     """
     Annotates an LCA graph by adding 'lca_branch' attribute to all edges.
 
     Uses spatial validation to ensure correct LAD/LCx labeling:
-    - LAD should go more anteriorly (decreasing axis 1 direction)
+    - LAD should go more anteriorly
     - LCx should go more posteriorly/laterally
 
     For trifurcation, identifies Ramus as the most geometrically central branch.
@@ -636,12 +686,35 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
     Args:
         graph (nx.DiGraph): LCA directed graph with edge_position labels
         spacing_info (tuple): Voxel spacing (z, y, x) in mm
+        anatomical_info (dict, optional): Anatomical orientation info from extract_anatomical_info().
+            If None, assumes LPS coordinate system (left-posterior-superior).
         trifurcation_threshold_mm (float): Threshold for detecting trifurcation
 
     Returns:
         nx.DiGraph: Updated graph with 'lca_branch' attributes
     """
     updated_graph = nx.DiGraph(graph)
+
+    # Get anatomical axis information for LAD/LCx spatial validation
+    # LAD runs anteriorly, LCx runs posteriorly
+    if anatomical_info is not None:
+        anterior_axis, anterior_sign = get_anatomical_axis_info(anatomical_info, 'anterior')
+        if anterior_axis is None:
+            print("[WARNING] Could not determine anterior direction from anatomical info")
+            print("          Falling back to default assumption: axis 1, negative direction (LPS)")
+            anterior_axis = 1
+            anterior_sign = -1
+        else:
+            print(f"[LCA Labeling] Using anatomical info: anterior = axis {anterior_axis}, "
+                  f"{'positive' if anterior_sign > 0 else 'negative'} direction")
+            print(f"               Coordinate system: {anatomical_info.get('space', 'unknown')}")
+    else:
+        # Default assumption: LPS coordinate system
+        # Axis 1 = posterior-anterior (posterior is positive, anterior is negative)
+        print("[LCA Labeling] No anatomical info provided, assuming LPS coordinate system")
+        print("               (axis 1 = posterior-anterior, anterior is negative)")
+        anterior_axis = 1
+        anterior_sign = -1
 
     # Step 1: Detect trifurcation
     trifurcation_info = detect_lca_trifurcation(updated_graph, trifurcation_threshold_mm)
@@ -688,8 +761,9 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
         direction_1 = compute_direction_vector(bifurcation_node, endpoint_1, spacing_info)
         direction_2 = compute_direction_vector(bifurcation_node, endpoint_2, spacing_info)
 
-        anterior_component_1 = -direction_1[1]
-        anterior_component_2 = -direction_2[1]
+        # Use anatomical info to determine anterior component
+        anterior_component_1 = anterior_sign * direction_1[anterior_axis]
+        anterior_component_2 = anterior_sign * direction_2[anterior_axis]
 
         if anterior_component_1 > anterior_component_2:
             lad_current_label = other_branches[0]
@@ -724,19 +798,20 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
             direction_11 = compute_direction_vector(bifurcation_node, endpoint_11, spacing_info)
             direction_12 = compute_direction_vector(bifurcation_node, endpoint_12, spacing_info)
 
-            anterior_component_11 = -direction_11[1]
-            anterior_component_12 = -direction_12[1]
+            # Use anatomical info to determine anterior component
+            anterior_component_11 = anterior_sign * direction_11[anterior_axis]
+            anterior_component_12 = anterior_sign * direction_12[anterior_axis]
 
             branch_11_is_more_anterior = anterior_component_11 > anterior_component_12
 
             if branch_11_is_more_anterior:
                 main_branch_labels = {'LAD': '11', 'LCx': '12'}
-                print(f"               '11' is LAD (axis1={direction_11[1]:.3f}, more anterior)")
-                print(f"               '12' is LCx (axis1={direction_12[1]:.3f}, more posterior)")
+                print(f"               '11' is LAD (anterior_component={anterior_component_11:.3f}, more anterior)")
+                print(f"               '12' is LCx (anterior_component={anterior_component_12:.3f}, more posterior)")
             else:
                 main_branch_labels = {'LAD': '12', 'LCx': '11'}
-                print(f"               '12' is LAD (axis1={direction_12[1]:.3f}, more anterior)")
-                print(f"               '11' is LCx (axis1={direction_11[1]:.3f}, more posterior)")
+                print(f"               '12' is LAD (anterior_component={anterior_component_12:.3f}, more anterior)")
+                print(f"               '11' is LCx (anterior_component={anterior_component_11:.3f}, more posterior)")
                 print(f"               [NOTE] Unusual anatomy: '12' branch is LAD")
 
 

@@ -539,25 +539,16 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
     return results_summary
 
-
-if __name__ == "__main__":
-    results = analyze_artery_batch(
-        config_path='analysis_config.yaml'
-    )
-
-    print(f"\n{'=' * 80}")
-    print(f"ANALYSIS COMPLETE - SUMMARY")
-    print(f"{'=' * 80}")
-    print(f"Files processed: {results['processed_count']}/{results['total_files']}")
-    print(f"Files failed: {results['failed_count']}/{results['total_files']}")
-    if results['failed_files']:
-        print(f"\nFailed analyses:")
-        for failed in results['failed_files']:
-            print(f"  - {failed['identifier']}: {failed['error']}")
-    print(f"{'=' * 80}")
-
-
 def compute_ttests(all_stats):
+    """
+    Perform t-tests for comparison between normal and diseased subjects.
+
+    Args:
+        all_stats(dict): Dictionary with lists of all summarised statistics for all relevant branches.
+
+    Returns:
+        dict: Results from the t-tests.
+    """
     ttest_results = {}
 
     normal = all_stats.get("Normal")
@@ -602,3 +593,20 @@ def compute_ttests(all_stats):
                     ttest_results[branch][metric] = {"t-statistic": tstat, "p-value": pvalue}
 
     return ttest_results
+
+
+if __name__ == "__main__":
+    results = analyze_artery_batch(
+        config_path='analysis_config.yaml'
+    )
+
+    print(f"\n{'=' * 80}")
+    print(f"ANALYSIS COMPLETE - SUMMARY")
+    print(f"{'=' * 80}")
+    print(f"Files processed: {results['processed_count']}/{results['total_files']}")
+    print(f"Files failed: {results['failed_count']}/{results['total_files']}")
+    if results['failed_files']:
+        print(f"\nFailed analyses:")
+        for failed in results['failed_files']:
+            print(f"  - {failed['identifier']}: {failed['error']}")
+    print(f"{'=' * 80}")

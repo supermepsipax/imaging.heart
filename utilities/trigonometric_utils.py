@@ -293,7 +293,6 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
     """
     eps = 1e-6  # Small epsilon for numerical stability
 
-    # Validate weights
     total_weight = angle_weight + diameter_weight + path_length_weight
     if abs(total_weight - 1.0) > eps:
         raise ValueError(
@@ -317,7 +316,6 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
     child_1_end_node = edges[1][1]
     child_2_end_node = edges[2][1]
 
-    # Get diameter information (prefer slicing, fall back to edt)
     if 'mean_diameter_slicing' in edge1_data:
         child_1_diameter = edge1_data['mean_diameter_slicing']
         child_2_diameter = edge2_data['mean_diameter_slicing']
@@ -351,15 +349,12 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
     # Longer path to endpoint gets higher score [0, 1]
     # IMPORTANT: Include the current edge's length + downstream path length
     if graph is not None:
-        # Get the length of the current edges themselves
         edge1_length = edge1_data.get('path_length_mm', 0)
         edge2_length = edge2_data.get('path_length_mm', 0)
 
-        # Get downstream path lengths from end of each edge
         child_1_downstream = compute_max_path_length_to_endpoint(graph, child_1_end_node)
         child_2_downstream = compute_max_path_length_to_endpoint(graph, child_2_end_node)
 
-        # Total path length = edge itself + downstream
         child_1_path_length = edge1_length + child_1_downstream
         child_2_path_length = edge2_length + child_2_downstream
 
@@ -372,10 +367,8 @@ def determine_child_branch_angle_designations(edges, angles, graph=None,
             path_score_1 = (child_1_path_length - min_p) / (max_p - min_p)
             path_score_2 = (child_2_path_length - min_p) / (max_p - min_p)
     else:
-        # If no graph provided, fall back to equal scoring
         path_score_1 = path_score_2 = 0.5
 
-    # Compute total weighted scores
     total_score_1 = (angle_weight * angle_score_1 +
                      diameter_weight * diam_score_1 +
                      path_length_weight * path_score_1)
@@ -573,142 +566,6 @@ def compute_angles_at_bifurcation(bifurcation_node, directed_graph, spacing_info
 
     return result
 
-def compute_angles_at_bifurcation_legacy(bifurcation_node, directed_graph, spacing_info,
-                                   min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
-    """
-    LEGACY VERSION - uses manual main/side branch designation based on path length.
-
-    Computes all bifurcation angles at a single bifurcation node following the paper's methodology.
-
-    At each depth from min_depth_mm to max_depth_mm (in step_mm increments), this function:
-    1. Collects points along each vessel up to that depth
-    2. Fits a bifurcation plane to all collected points
-    3. Calculates inflow angle and bifurcation angles A, B, C
-    4. Averages the angles over the depth range
-
-    Args:
-        bifurcation_node (tuple): The coordinate of the bifurcation point
-        directed_graph (nx.DiGraph): The directed graph with 'voxels' edge attributes
-        spacing_info (tuple): Voxel spacing in mm for each dimension
-        min_depth_mm (float): Minimum depth for averaging (default 5.0 mm)
-        max_depth_mm (float): Maximum depth for averaging (default 10.0 mm)
-        step_mm (float): Step size for depth increments (default 0.5 mm)
-
-    Returns:
-        dict: Dictionary containing averaged angles and angle measurements at each depth
-    """
-    in_edges = list(directed_graph.in_edges(bifurcation_node, data=True))
-    out_edges = list(directed_graph.out_edges(bifurcation_node, data=True))
-
-    if len(in_edges) != 1 or len(out_edges) != 2:
-        return None
-
-    proximal_edge = in_edges[0]
-    proximal_voxels = list(proximal_edge[2]['voxels'])
-
-    if proximal_voxels[0] == bifurcation_node:
-        proximal_voxels = list(reversed(proximal_voxels))
-    elif proximal_voxels[-1] != bifurcation_node:
-        # Neither end matches - this shouldn't happen but handle gracefully
-        return None
-
-    proximal_voxels_reversed = list(reversed(proximal_voxels))
-
-    distal_edge_1 = out_edges[0]
-    distal_voxels_1 = list(distal_edge_1[2]['voxels'])
-
-    if distal_voxels_1[-1] == bifurcation_node:
-        distal_voxels_1 = list(reversed(distal_voxels_1))
-    elif distal_voxels_1[0] != bifurcation_node:
-        return None
-
-    distal_edge_2 = out_edges[1]
-    distal_voxels_2 = list(distal_edge_2[2]['voxels'])
-
-    if distal_voxels_2[-1] == bifurcation_node:
-        distal_voxels_2 = list(reversed(distal_voxels_2))
-    elif distal_voxels_2[0] != bifurcation_node:
-        return None
-
-    # Determine which is main vessel and which is side branch
-    # 
-    def path_length(voxels, spacing):
-        if len(voxels) < 2:
-            return 0.0
-        length = 0.0
-        for i in range(1, len(voxels)):
-            diff = (np.array(voxels[i]) - np.array(voxels[i-1])) * np.array(spacing)
-            length += np.linalg.norm(diff)
-        return length
-
-    length_1 = path_length(distal_voxels_1, spacing_info)
-    length_2 = path_length(distal_voxels_2, spacing_info)
-
-    if length_1 >= length_2:
-        distal_main_voxels = distal_voxels_1
-        side_branch_voxels = distal_voxels_2
-    else:
-        distal_main_voxels = distal_voxels_2
-        side_branch_voxels = distal_voxels_1
-
-    depth_measurements = []
-    depths = np.arange(min_depth_mm, max_depth_mm + step_mm, step_mm)
-
-    for depth in depths:
-        try:
-            proximal_pts, prox_dist = move_along_centerline(proximal_voxels_reversed, depth, spacing_info)
-            distal_main_pts, distal_dist = move_along_centerline(distal_main_voxels, depth, spacing_info)
-            side_branch_pts, side_dist = move_along_centerline(side_branch_voxels, depth, spacing_info)
-
-            if len(proximal_pts) < 2 or len(distal_main_pts) < 2 or len(side_branch_pts) < 2:
-                continue
-
-            all_points = proximal_pts + distal_main_pts + side_branch_pts
-            plane_normal, plane_point = fit_bifurcation_plane(all_points, spacing_info)
-
-            inflow_angle = compute_inflow_angle(proximal_pts, plane_normal, spacing_info)
-
-            bifurcation_angles = compute_bifurcation_angles_legacy(
-                proximal_pts, distal_main_pts, side_branch_pts, plane_normal, spacing_info
-            )
-
-            depth_measurements.append({
-                'depth': depth,
-                'inflow_angle': inflow_angle,
-                'angle_A': bifurcation_angles['angle_A'],
-                'angle_B': bifurcation_angles['angle_B'],
-                'angle_C': bifurcation_angles['angle_C']
-            })
-
-        except Exception as e:
-            print(e)
-            continue
-
-    if len(depth_measurements) == 0:
-        return None
-
-    inflow_angles = [m['inflow_angle'] for m in depth_measurements if m['inflow_angle'] is not None]
-    angles_A = [m['angle_A'] for m in depth_measurements if m['angle_A'] is not None]
-    angles_B = [m['angle_B'] for m in depth_measurements if m['angle_B'] is not None]
-    angles_C = [m['angle_C'] for m in depth_measurements if m['angle_C'] is not None]
-
-    result = {
-        'bifurcation_node': bifurcation_node,
-        'averaged_inflow_angle': np.mean(inflow_angles) if inflow_angles else None,
-        'averaged_angle_A': np.mean(angles_A) if angles_A else None,
-        'averaged_angle_B': np.mean(angles_B) if angles_B else None,
-        'averaged_angle_C': np.mean(angles_C) if angles_C else None,
-        'std_inflow_angle': np.std(inflow_angles) if inflow_angles else None,
-        'std_angle_A': np.std(angles_A) if angles_A else None,
-        'std_angle_B': np.std(angles_B) if angles_B else None,
-        'std_angle_C': np.std(angles_C) if angles_C else None,
-        'depth_measurements': depth_measurements,
-        'num_measurements': len(depth_measurements)
-    }
-
-    return result
-
-
 def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_info,
                                     min_depth_mm=5.0, max_depth_mm=10.0, step_mm=0.5):
     """
@@ -744,7 +601,6 @@ def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_in
     in_edges = list(directed_graph.in_edges(trifurcation_node, data=True))
     out_edges = list(directed_graph.out_edges(trifurcation_node, data=True))
 
-    # Validate trifurcation structure (1 parent, 3 children)
     if len(in_edges) != 1 or len(out_edges) != 3:
         print(f"      [ERROR] Node {trifurcation_node} is not a trifurcation (in={len(in_edges)}, out={len(out_edges)})")
         return None
@@ -833,9 +689,9 @@ def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_in
                 continue
 
             # ========================================================================
-            # MAIN PLANE: Parent + LAD + LCx (ignoring Ramus)
+            # MAIN PLANE: Trifurcation node + LAD + LCx (ignoring Ramus)
             # ========================================================================
-            main_plane_points = parent_points + lad_points + lcx_points
+            main_plane_points = [trifurcation_node] + lad_points + lcx_points
             plane_normal_main, plane_point_main = fit_bifurcation_plane(main_plane_points, spacing_info)
 
             inflow_angle_main = compute_inflow_angle(parent_points, plane_normal_main, spacing_info)
@@ -856,7 +712,7 @@ def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_in
             # ========================================================================
             # LCX-RAMUS PLANE (for B1)
             # ========================================================================
-            lcx_ramus_points = lcx_points + ramus_points
+            lcx_ramus_points = [trifurcation_node] + lcx_points + ramus_points
             plane_normal_lcx_ramus, _ = fit_bifurcation_plane(lcx_ramus_points, spacing_info)
 
             lcx_array = np.array(lcx_points) * np.array(spacing_info)
@@ -881,7 +737,7 @@ def compute_angles_at_trifurcation(trifurcation_node, directed_graph, spacing_in
             # ========================================================================
             # LAD-RAMUS PLANE (for B2)
             # ========================================================================
-            lad_ramus_points = lad_points + ramus_points
+            lad_ramus_points = [trifurcation_node] + lad_points + ramus_points
             plane_normal_lad_ramus, _ = fit_bifurcation_plane(lad_ramus_points, spacing_info)
 
             lad_array = np.array(lad_points) * np.array(spacing_info)

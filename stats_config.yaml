@@ -17,7 +17,7 @@
 # Use this option when analyzing individual files directly.
 # Comment out this line if using input_tar_file instead.
 
-input_tar_file: "results/to_test/to_test_archive.tar.gz"
+input_tar_file: "all_processed_train_data.tar.gz"
 # Path to a tar archive containing multiple artery analysis files.
 # This file is created at the end of batch processing using archive_artery_analyses()
 # or the archive option when prompted after batch processing completes.
@@ -28,7 +28,7 @@ input_tar_file: "results/to_test/to_test_archive.tar.gz"
 # The archive streams files one-by-one, avoiding memory issues with large datasets.
 # Uncomment this line and comment out input_folder to use tar archive mode.
 
-output_folder: "results/to_test"
+output_folder: "results/all"
 # Optional directory for saving statistical analysis results
 # Currently used for organizing output, can be used for future CSV exports
 # or aggregated statistics files

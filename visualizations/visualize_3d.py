@@ -67,7 +67,141 @@ def get_edge_hierarchy_color(edge_position_label):
     return 'green'
 
 
-def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surface"):
+def visualize_binary_mask(binary_mask, title="3D Binary Mask", hide_background=False, dark_mode=False):
+    """
+    Visualizes just the binary mask as a 3D mesh surface without any graph overlay.
+
+    Args:
+        binary_mask: 3D numpy array where 1s represent the artery
+        title (str): Title for the visualization (default: "3D Binary Mask")
+        hide_background (bool): If True, hides background, grid, and axes for cleaner visualization (default: False)
+        dark_mode (bool): If True, uses dark background with light grid/axes (default: False)
+    """
+    # Generate mesh from binary mask
+    verts, faces, _, _ = measure.marching_cubes(binary_mask, level=0.5)
+
+    artery_mesh = go.Mesh3d(
+        x=verts[:, 0],
+        y=verts[:, 1],
+        z=verts[:, 2],
+        i=faces[:, 0],
+        j=faces[:, 1],
+        k=faces[:, 2],
+        opacity=0.5,
+        color='lightcoral',
+        name='Artery surface',
+        flatshading=True
+    )
+
+    fig = go.Figure(data=[artery_mesh])
+
+    # Configure layout based on dark_mode and hide_background settings
+    if dark_mode and hide_background:
+        # Dark mode with hidden grid/axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif dark_mode:
+        # Dark mode with visible light grid/axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                zaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif hide_background:
+        # Light mode with hidden grid/axes (transparent background)
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                bgcolor='rgba(0,0,0,0)',
+                aspectmode='data'
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            title=title
+        )
+    else:
+        # Default light mode with visible grid and axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=True),
+                yaxis=dict(showgrid=True),
+                zaxis=dict(showgrid=True),
+                aspectmode='data'
+            ),
+            title=title
+        )
+
+    fig.show()
+
+
+def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surface", hide_background=False, dark_mode=False):
     """
     Will create a 3D visualization that will open in a web browser to view a created networkx graph
     and an optional 3d mesh of the original binary mask.
@@ -78,6 +212,8 @@ def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surf
             - edges have 'voxels' attribute with list of voxel coordinates in the path
         binary_mask: 3D numpy array where 1s represent the artery
         title (str): Title for the visualization (default: "3D Graph with Artery Surface")
+        hide_background (bool): If True, hides background, grid, and axes for cleaner visualization (default: False)
+        dark_mode (bool): If True, uses dark background with light grid/axes (default: False)
     """
     traces = []
     
@@ -277,16 +413,110 @@ def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surf
         traces.append(node_trace)
     
     fig = go.Figure(data=traces)
-    fig.update_layout(
-        showlegend=True,
-        scene=dict(
-            xaxis=dict(showgrid=True),
-            yaxis=dict(showgrid=True),
-            zaxis=dict(showgrid=True),
-            aspectmode='data'
-        ),
-        title=title
-    )
+
+    # Configure layout based on dark_mode and hide_background settings
+    if dark_mode and hide_background:
+        # Dark mode with hidden grid/axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif dark_mode:
+        # Dark mode with visible light grid/axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                zaxis=dict(
+                    showgrid=True,
+                    gridcolor='#444444',
+                    showbackground=True,
+                    backgroundcolor='#1a1a1a',
+                    color='white'
+                ),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif hide_background:
+        # Light mode with hidden grid/axes (transparent background)
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                yaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                zaxis=dict(
+                    showgrid=False,
+                    showbackground=False,
+                    visible=False
+                ),
+                bgcolor='rgba(0,0,0,0)',
+                aspectmode='data'
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            title=title
+        )
+    else:
+        # Default light mode with visible grid and axes
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=True),
+                yaxis=dict(showgrid=True),
+                zaxis=dict(showgrid=True),
+                aspectmode='data'
+            ),
+            title=title
+        )
+
     fig.show()
 
 

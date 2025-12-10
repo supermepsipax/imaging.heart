@@ -156,7 +156,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         "side_branch": []
     }
 
-    branches = ["LAD", "LCx", "RCA"]
+    branches = ["LAD", "LCx", "RCA", "Ramus"]
     bifurcations = ["LCx_LAD", "LAD_D1"]
     conditions = ["Normal", "Diseased"]
 

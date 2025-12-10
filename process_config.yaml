@@ -10,10 +10,10 @@
 # ==============================================================================
 # Specify where to find input NRRD mask files and where to save results
 
-input_folder: "data/batch_3"   # Directory containing .nrrd mask files
-output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
-# input_folder: "data/to_test"   # Directory containing .nrrd mask files
-# output_folder: "results/to_test"  # Directory for output CSVs and pickle files
+# input_folder: "data/batch_3"   # Directory containing .nrrd mask files
+# output_folder: "results/batch_3"  # Directory for output CSVs and pickle files
+input_folder: "data/visualization"   # Directory containing .nrrd mask files
+output_folder: "results/visualization"  # Directory for output CSVs and pickle files
 
 
 # ==============================================================================
@@ -166,7 +166,7 @@ diameter_method: 'slicing'
 # VISUALIZATION SETTINGS
 # ==============================================================================
 
-visualize: false 
+visualize: true 
 # Whether to display interactive 3D visualizations during processing
 # - true: Show visualizations (useful for debugging, inspecting results)
 # - false: No visualization (recommended for large batch processing)

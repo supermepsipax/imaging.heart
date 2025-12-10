@@ -3,6 +3,7 @@ import json
 import yaml
 import pickle
 import tarfile
+import numpy as np
 from pathlib import Path
 
 def load_nrrd_mask(path, verbose=False):
@@ -55,6 +56,147 @@ def load_config(config_path):
             )
 
     return config
+
+
+def extract_anatomical_info(nrrd_header):
+    """
+    Extract and parse anatomical orientation information from NRRD header.
+
+    Parses the coordinate system (space) and determines which anatomical
+    direction each array axis corresponds to. Handles common medical imaging
+    coordinate systems.
+
+    Args:
+        nrrd_header (dict): NRRD header dictionary from nrrd.read()
+
+    Returns:
+        dict: Dictionary containing:
+            - 'space': Coordinate system name (e.g., 'left-posterior-superior')
+            - 'space_directions': 3x3 matrix of direction vectors (if available)
+            - 'space_origin': Origin point in world coordinates (if available)
+            - 'axis_labels': List of anatomical labels for each axis (e.g., ['left-right', ...])
+            - 'axis_directions': List of positive direction for each axis (e.g., ['left', 'posterior', 'superior'])
+            - 'spacings': Voxel spacing in mm for each axis
+            - 'is_axis_aligned': True if space_directions is diagonal (axes align with anatomy)
+
+    Common coordinate systems:
+        - 'left-posterior-superior' (LPS): Used in DICOM, ITK
+        - 'right-anterior-superior' (RAS): Used in NIfTI, FreeSurfer
+        - 'left-anterior-superior' (LAS): Less common variant
+
+    Example:
+        >>> data, header = nrrd.read('scan.nrrd')
+        >>> info = extract_anatomical_info(header)
+        >>> print(info['axis_labels'])
+        ['left-right', 'posterior-anterior', 'superior-inferior']
+        >>> print(info['axis_directions'])
+        ['left', 'posterior', 'superior']
+    """
+    anatomical_info = {}
+
+    # Extract space coordinate system
+    if 'space' in nrrd_header:
+        space = nrrd_header['space']
+        anatomical_info['space'] = space
+
+        # Parse space string to determine axis labels
+        # Format: "direction0-direction1-direction2"
+        space_lower = space.lower()
+
+        # Map of coordinate system to axis information
+        coordinate_systems = {
+            'left-posterior-superior': {
+                'axis_directions': ['left', 'posterior', 'superior'],
+                'axis_labels': ['left-right', 'posterior-anterior', 'superior-inferior']
+            },
+            'right-anterior-superior': {
+                'axis_directions': ['right', 'anterior', 'superior'],
+                'axis_labels': ['right-left', 'anterior-posterior', 'superior-inferior']
+            },
+            'left-anterior-superior': {
+                'axis_directions': ['left', 'anterior', 'superior'],
+                'axis_labels': ['left-right', 'anterior-posterior', 'superior-inferior']
+            },
+            'right-posterior-superior': {
+                'axis_directions': ['right', 'posterior', 'superior'],
+                'axis_labels': ['right-left', 'posterior-anterior', 'superior-inferior']
+            },
+            'scanner-xyz': {
+                'axis_directions': ['x', 'y', 'z'],
+                'axis_labels': ['x', 'y', 'z']
+            }
+        }
+
+        if space_lower in coordinate_systems:
+            anatomical_info['axis_directions'] = coordinate_systems[space_lower]['axis_directions']
+            anatomical_info['axis_labels'] = coordinate_systems[space_lower]['axis_labels']
+        else:
+            # For unknown coordinate systems, try to parse from the space string
+            parts = space_lower.split('-')
+            if len(parts) == 3:
+                anatomical_info['axis_directions'] = parts
+                anatomical_info['axis_labels'] = [f"{parts[i]}-{_get_opposite_direction(parts[i])}"
+                                                   for i in range(3)]
+            else:
+                anatomical_info['axis_directions'] = ['unknown', 'unknown', 'unknown']
+                anatomical_info['axis_labels'] = ['unknown', 'unknown', 'unknown']
+
+    # Extract space directions matrix
+    if 'space directions' in nrrd_header:
+        space_directions = np.array(nrrd_header['space directions'])
+        anatomical_info['space_directions'] = space_directions
+
+        # Check if axis-aligned (diagonal matrix)
+        # An axis-aligned matrix has non-zero values only on the diagonal
+        is_diagonal = True
+        spacings = []
+
+        for i in range(min(3, space_directions.shape[0])):
+            for j in range(min(3, space_directions.shape[1])):
+                if i == j:
+                    # Diagonal element - should be non-zero
+                    spacings.append(np.abs(space_directions[i, j]))
+                else:
+                    # Off-diagonal element - should be near zero for axis-aligned
+                    if np.abs(space_directions[i, j]) > 1e-6:
+                        is_diagonal = False
+
+        anatomical_info['is_axis_aligned'] = is_diagonal
+        anatomical_info['spacings'] = spacings
+
+    # Extract space origin
+    if 'space origin' in nrrd_header:
+        anatomical_info['space_origin'] = np.array(nrrd_header['space origin'])
+
+    # If space directions not available, try to get spacing from 'spacings' field
+    if 'spacings' not in anatomical_info and 'spacings' in nrrd_header:
+        anatomical_info['spacings'] = list(nrrd_header['spacings'])
+
+    return anatomical_info
+
+
+def _get_opposite_direction(direction):
+    """
+    Helper function to get the opposite anatomical direction.
+
+    Args:
+        direction (str): Anatomical direction (e.g., 'left', 'anterior')
+
+    Returns:
+        str: Opposite direction (e.g., 'right', 'posterior')
+    """
+    opposites = {
+        'left': 'right',
+        'right': 'left',
+        'anterior': 'posterior',
+        'posterior': 'anterior',
+        'superior': 'inferior',
+        'inferior': 'superior',
+        'x': 'x',
+        'y': 'y',
+        'z': 'z'
+    }
+    return opposites.get(direction.lower(), 'unknown')
 
 
 def save_artery_analysis(path, final_graph, sparse_graph=None, binary_mask=None,

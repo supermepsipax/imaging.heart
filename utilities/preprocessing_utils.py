@@ -3,6 +3,18 @@ from scipy import ndimage
 
 
 def sort_labelled_bodies_by_size(labelled_bodies):
+    """
+    Takes a numpy 3d array where each non-zero integer represents a single continous body 
+    within the array, and seperates out each body, sorts and returns the continous bodies
+    in descending order based on total size (volume) of each body.
+
+
+    Args:
+        labelled_bodies (np.ndarray): A 3D binary mask.
+
+    Returns:
+        sorted_masks (List(np.ndarray)): Ordered list of continous bodies
+    """
 
     masks = []
     unique_bodies = np.unique(labelled_bodies)
@@ -33,15 +45,12 @@ def resample_to_isotropic(binary_mask, original_spacing):
         new_spacing: The new voxel spacing in mm.
     """
 
-    # Using the smallest value as target as this corresponds to the highest resolution
     target_spacing = min(original_spacing)
 
     original_spacing = np.array(original_spacing)
 
-    # Computes scaling factors for each axis
     scaling_factor = original_spacing / target_spacing
 
-    # Resamples the mask using nearest-neighbor interpolation (order 0)
     resampled_mask = ndimage.zoom(binary_mask, zoom = scaling_factor, order = 0) # Order 0 because we have binary masks
 
     new_spacing = tuple([target_spacing] * binary_mask.ndim)

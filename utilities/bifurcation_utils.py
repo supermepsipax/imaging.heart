@@ -97,12 +97,10 @@ def remove_redundant_bifurcation_clusters(bifurcation_coordinates, combined_mask
     for component in components:
         if len(component) >= 3:
             if connectivity_values is not None:
-                # Choose bifurcation with highest connectivity (most connected)
                 component_list = list(component)
                 component_connectivity = [connectivity_values[i] for i in component_list]
                 representative = component_list[np.argmax(component_connectivity)]
             else:
-                # Fallback to min if no mask provided (backward compatibility)
                 representative = min(component)
             indices_to_keep.append(representative)
         else:

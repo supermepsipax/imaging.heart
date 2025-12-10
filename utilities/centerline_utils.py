@@ -1,11 +1,6 @@
 import numpy as np
 from scipy import ndimage
-# import networkx as nx
-# import SimpleITK as sitk
 from skimage.morphology import skeletonize
-# from vtk.util import numpy_support
-# import vtk
-# from vmtk_visualizations import extract_centerline_vmtk
 
 def ensure_continuous_body(binary_mask, debug=False):
     """

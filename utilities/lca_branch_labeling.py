@@ -3,6 +3,55 @@ import networkx as nx
 import re
 
 
+def get_anatomical_axis_info(anatomical_info, axis_name):
+    """
+    Gets the axis index and direction multiplier for a given anatomical axis.
+
+    Args:
+        anatomical_info (dict): Anatomical info from extract_anatomical_info()
+        axis_name (str): Anatomical axis to find (e.g., 'anterior', 'superior', 'left')
+
+    Returns:
+        tuple: (axis_index, multiplier) where:
+            - axis_index: Which array axis (0, 1, or 2) corresponds to this direction
+            - multiplier: +1 if positive values mean this direction, -1 if negative
+
+        Returns (None, None) if axis not found
+
+    Example:
+        For LPS coordinate system with axis_directions=['left', 'posterior', 'superior']:
+        - get_anatomical_axis_info(info, 'anterior') → (1, -1)
+          (axis 1, negative direction)
+        - get_anatomical_axis_info(info, 'superior') → (2, +1)
+          (axis 2, positive direction)
+    """
+    if 'axis_directions' not in anatomical_info:
+        return None, None
+
+    axis_directions = anatomical_info['axis_directions']
+    axis_name_lower = axis_name.lower()
+
+    # Define opposite directions
+    opposites = {
+        'left': 'right', 'right': 'left',
+        'anterior': 'posterior', 'posterior': 'anterior',
+        'superior': 'inferior', 'inferior': 'superior'
+    }
+
+    # Check each axis
+    for idx, direction in enumerate(axis_directions):
+        direction_lower = direction.lower()
+
+        if direction_lower == axis_name_lower:
+            # This axis increases in the desired direction
+            return idx, +1
+        elif direction_lower == opposites.get(axis_name_lower):
+            # This axis increases in the opposite direction
+            return idx, -1
+
+    return None, None
+
+
 def compute_direction_vector(start_node, end_node, spacing_info):
     """
     Computes a direction vector from start to end node in physical coordinates.
@@ -25,6 +74,62 @@ def compute_direction_vector(start_node, end_node, spacing_info):
         return np.array([0, 0, 0])
 
     return direction / norm
+
+
+def fit_least_squares_line_direction(voxels, spacing_info, origin_node=None):
+    """
+    Fits a least squares line through a set of voxels and returns the direction vector.
+
+    Uses SVD (Principal Component Analysis) to find the direction of maximum variance,
+    which represents the best-fit line through the points.
+
+    Args:
+        voxels (list): List of voxel coordinates (tuples)
+        spacing_info (tuple): Voxel spacing (z, y, x) in mm
+        origin_node (tuple, optional): Origin node - if provided, ensures direction points away from origin
+
+    Returns:
+        numpy.ndarray: Normalized direction vector in physical space
+    """
+    if len(voxels) < 2:
+        return np.array([0, 0, 0])
+
+    # Convert to physical coordinates
+    voxels_array = np.array(voxels) * np.array(spacing_info)
+
+    # Compute centroid
+    centroid = np.mean(voxels_array, axis=0)
+
+    # Center the points
+    centered = voxels_array - centroid
+
+    # Compute SVD - the first right singular vector is the direction of maximum variance
+    # This represents the best-fit line direction
+    try:
+        _, _, Vh = np.linalg.svd(centered)
+        direction = Vh[0]  # First row = direction of maximum variance
+    except np.linalg.LinAlgError:
+        # Fallback to simple end-to-end direction if SVD fails
+        direction = voxels_array[-1] - voxels_array[0]
+
+    # Normalize
+    norm = np.linalg.norm(direction)
+    if norm < 1e-6:
+        return np.array([0, 0, 0])
+
+    direction = direction / norm
+
+    # If origin node provided, ensure direction points away from origin
+    if origin_node is not None:
+        origin_phys = np.array(origin_node) * np.array(spacing_info)
+        # Vector from origin to centroid
+        to_centroid = centroid - origin_phys
+
+        # If direction points toward origin (negative dot product), flip it
+        if np.dot(direction, to_centroid) < 0:
+            direction = -direction
+
+    return direction
 
 
 def find_main_trunk_endpoint(graph, trunk_label):
@@ -260,36 +365,131 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
 
     origin_node = next(n for n, d in graph.in_degree() if d == 0)
 
-    # Get immediate endpoints for each branch (initial segment only)
-    # This captures the branching angle at the trifurcation point
-    endpoints = {}
+    # Get voxel paths for each branch to fit least squares direction
+    # IMPORTANT: Ensure all voxel paths start from the trifurcation node
+    branch_voxels = {}
     for label in branch_labels:
-        # Use immediate endpoint of the first edge with this label
-        # This represents the initial segment direction, not the entire trunk
-        endpoint = None
+        # Find the edge with this label and extract its voxels
+        edge_voxels = None
+        edge_tuple = None
         for edge in graph.edges():
             if graph.edges[edge].get('edge_position') == label:
-                endpoint = edge[1]
+                edge_voxels = list(graph.edges[edge].get('voxels', []))
+                edge_tuple = edge
                 break
-        if endpoint is not None:
-            endpoints[label] = endpoint
 
-    if len(endpoints) != 3:
-        print(f"      [WARNING] Could not find all 3 branch endpoints for Ramus detection")
+        if edge_voxels is not None and len(edge_voxels) >= 2:
+            # Ensure voxels start from trifurcation node (not end at it)
+            # For edges emanating from trifurcation, edge[0] should be the trifurcation node
+            if edge_tuple[0] == bifurcation_node:
+                # Voxels should start at bifurcation (edge[0]) and go to edge[1]
+                # Check if voxels are in correct order
+                if edge_voxels[0] != bifurcation_node and edge_voxels[-1] == bifurcation_node:
+                    edge_voxels = list(reversed(edge_voxels))
+            elif edge_tuple[1] == bifurcation_node:
+                # Edge goes TO bifurcation (unusual but handle it)
+                # Reverse so it goes FROM bifurcation
+                if edge_voxels[-1] != bifurcation_node and edge_voxels[0] == bifurcation_node:
+                    edge_voxels = list(reversed(edge_voxels))
+
+            branch_voxels[label] = edge_voxels
+
+    if len(branch_voxels) != 3:
+        print(f"      [WARNING] Could not find voxel paths for all 3 branches for Ramus detection")
         return branch_labels[0]
 
-    # Compute direction vectors
+    # Normalize to shortest branch length to ensure fair comparison
+    # All branches are evaluated using the same initial trajectory length
+    min_voxels = min(len(voxels) for voxels in branch_voxels.values())
+    print(f"               Normalizing to shortest branch: {min_voxels} voxels")
+
+    # Truncate all branches to the shortest length (from bifurcation node outward)
+    normalized_voxels = {}
+    for label, voxels in branch_voxels.items():
+        normalized_voxels[label] = voxels[:min_voxels]
+        print(f"                 '{label}': using {len(normalized_voxels[label])}/{len(voxels)} voxels")
+
+    # PRIMARY METHOD: Centroid-based spatial analysis
+    # Analyze spatial distribution of entire branch territories
+    print(f"               Ramus detection (PRIMARY: centroid-based spatial analysis):")
+
+    # For each branch, collect ALL voxels from the branch and its descendants
+    def get_all_branch_voxels(branch_label):
+        """Collect all voxels from this branch and all its descendants."""
+        all_voxels = []
+
+        # Find all edges that start with this label (descendants)
+        for edge in graph.edges():
+            edge_pos = graph.edges[edge].get('edge_position', '')
+            if edge_pos.startswith(branch_label):
+                edge_voxels = graph.edges[edge].get('voxels', [])
+                all_voxels.extend(edge_voxels)
+
+        return all_voxels
+
+    # Compute centroid for each branch's entire territory
+    branch_centroids = {}
+    centroid_method_failed = False
+
+    for label in branch_labels:
+        voxels = get_all_branch_voxels(label)
+
+        if len(voxels) == 0:
+            print(f"                   [WARNING] No voxels found for branch '{label}'")
+            centroid_method_failed = True
+            break
+
+        # Convert to physical coordinates and compute centroid
+        voxels_array = np.array(voxels) * np.array(spacing_info)
+        centroid = np.mean(voxels_array, axis=0)
+        branch_centroids[label] = centroid
+
+        print(f"                   '{label}': centroid={centroid}, {len(voxels)} voxels")
+
+    if not centroid_method_failed and len(branch_centroids) == 3:
+        # Find the two branches with the largest distance between centroids
+        # Those are the exterior branches (LAD and LCx), the remaining is Ramus
+        max_distance = 0
+        exterior_pair = None
+
+        labels_list = list(branch_centroids.keys())
+        for i in range(len(labels_list)):
+            for j in range(i + 1, len(labels_list)):
+                label1, label2 = labels_list[i], labels_list[j]
+                centroid1, centroid2 = branch_centroids[label1], branch_centroids[label2]
+
+                distance = np.linalg.norm(centroid1 - centroid2)
+
+                if distance > max_distance:
+                    max_distance = distance
+                    exterior_pair = (label1, label2)
+
+        # The branch not in the exterior pair is the Ramus (middle branch)
+        central_branch = None
+        for label in branch_labels:
+            if label not in exterior_pair:
+                central_branch = label
+                break
+
+        if central_branch is not None:
+            print(f"                   Exterior branches (furthest apart): {exterior_pair} (distance: {max_distance:.1f}mm)")
+            print(f"                 → RAMUS: '{central_branch}' (PRIMARY method: spatial centroid)")
+            return central_branch
+
+    # FALLBACK METHOD: Multi-plane voting with direction vectors
+    print(f"               Primary method failed - using FALLBACK: multi-plane voting")
+
+    # Compute direction vectors using least squares fit on normalized lengths
     input_direction = compute_direction_vector(origin_node, bifurcation_node, spacing_info)
     branch_directions = {}
-    for label, endpoint in endpoints.items():
-        direction = compute_direction_vector(bifurcation_node, endpoint, spacing_info)
+    for label, voxels in normalized_voxels.items():
+        # Fit least squares line through normalized voxels
+        direction = fit_least_squares_line_direction(voxels, spacing_info, origin_node=bifurcation_node)
         branch_directions[label] = direction
 
     # Vote across 3 orthogonal plane projections
     plane_names = ['YZ (perp to X)', 'XZ (perp to Y)', 'XY (perp to Z)']
     votes = {label: 0 for label in branch_labels}
-
-    print(f"               Ramus detection (multi-plane voting):")
 
     for plane_axis in range(3):  # 0=X, 1=Y, 2=Z
         middle_branch = find_middle_branch_in_plane_projection(
@@ -304,88 +504,8 @@ def identify_central_branch_for_ramus(graph, branch_labels, bifurcation_node, sp
 
     print(f"                 Votes: {dict(votes)}")
 
-    # If clear winner (2+ votes), use it
-    if winner[1] >= 2:
-        central_branch = winner[0]
-        print(f"                 → RAMUS: '{central_branch}' (won {winner[1]}/3 votes)")
-        return central_branch
-
-    # No consensus - fall back to complexity-based method
-    # Ramus is typically the shortest/least complex intermediate branch
-    print(f"                 No consensus (tie votes) - using fallback method")
-    print(f"                 Fallback: shortest/least complex branch is likely Ramus")
-
-    # Calculate total branch length for each branch (including all descendants)
-    def get_longest_path_length(branch_label):
-        """Find the longest path through all edges starting with this label."""
-        # Find all edges that start with this label
-        descendant_edges = []
-        for edge in graph.edges():
-            edge_pos = graph.edges[edge].get('edge_position', '')
-            if edge_pos.startswith(branch_label):
-                descendant_edges.append((edge, edge_pos))
-
-        if not descendant_edges:
-            return 0.0
-
-        # Build subgraph of this branch
-        branch_graph = nx.DiGraph()
-        for edge, edge_pos in descendant_edges:
-            length = graph.edges[edge].get('path_length_mm', 0)
-            branch_graph.add_edge(edge[0], edge[1], length=length)
-
-        # Find all leaf nodes (endpoints)
-        leaf_nodes = [n for n in branch_graph.nodes() if branch_graph.out_degree(n) == 0]
-
-        if not leaf_nodes:
-            # No leaves found, just sum all edges
-            return sum(graph.edges[e].get('path_length_mm', 0) for e, _ in descendant_edges)
-
-        # Find the root node of this branch (node with in-degree 0)
-        root_nodes = [n for n in branch_graph.nodes() if branch_graph.in_degree(n) == 0]
-
-        if not root_nodes:
-            # No root found, just sum all edges
-            return sum(graph.edges[e].get('path_length_mm', 0) for e, _ in descendant_edges)
-
-        # Use the first root node (should only be one in a tree structure)
-        root_node = root_nodes[0]
-
-        # Find longest path from root to any leaf
-        max_path_length = 0
-        for leaf in leaf_nodes:
-            try:
-                path = nx.shortest_path(branch_graph, root_node, leaf)
-                path_length = sum(
-                    branch_graph.edges[path[i], path[i+1]]['length']
-                    for i in range(len(path) - 1)
-                )
-                max_path_length = max(max_path_length, path_length)
-            except nx.NetworkXNoPath:
-                continue
-
-        return max_path_length
-
-    # Get branch metrics
-    branch_metrics = {}
-    for label in branch_labels:
-        total_length = get_longest_path_length(label)
-        dot_product = np.dot(input_direction, branch_directions[label])
-
-        # Complexity score: longer branches with higher alignment are more complex
-        complexity = total_length * (1.0 + dot_product)
-
-        branch_metrics[label] = {
-            'total_length': total_length,
-            'dot_product': dot_product,
-            'complexity': complexity
-        }
-        print(f"                   '{label}': length={total_length:.1f}mm, dot={dot_product:.3f}, score={complexity:.2f}")
-
-    # Ramus = least complex (shortest total path, least aligned)
-    central_branch = min(branch_metrics.items(), key=lambda x: x[1]['complexity'])[0]
-
-    print(f"                 → RAMUS: '{central_branch}' (fallback: least complex)")
+    central_branch = winner[0]
+    print(f"                 → RAMUS: '{central_branch}' (FALLBACK method: multi-plane voting - {winner[1]}/3 votes)")
     return central_branch
 
     # ============================================================================
@@ -618,12 +738,13 @@ def is_side_branch(edge_position, parent_edge_position):
     return last_digit_child > last_digit_parent
 
 
-def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_threshold_mm=5.0):
+def annotate_lca_graph_with_branch_labels(graph, spacing_info, anatomical_info=None,
+                                            trifurcation_threshold_mm=5.0):
     """
     Annotates an LCA graph by adding 'lca_branch' attribute to all edges.
 
     Uses spatial validation to ensure correct LAD/LCx labeling:
-    - LAD should go more anteriorly (decreasing axis 1 direction)
+    - LAD should go more anteriorly
     - LCx should go more posteriorly/laterally
 
     For trifurcation, identifies Ramus as the most geometrically central branch.
@@ -636,12 +757,35 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
     Args:
         graph (nx.DiGraph): LCA directed graph with edge_position labels
         spacing_info (tuple): Voxel spacing (z, y, x) in mm
+        anatomical_info (dict, optional): Anatomical orientation info from extract_anatomical_info().
+            If None, assumes LPS coordinate system (left-posterior-superior).
         trifurcation_threshold_mm (float): Threshold for detecting trifurcation
 
     Returns:
         nx.DiGraph: Updated graph with 'lca_branch' attributes
     """
     updated_graph = nx.DiGraph(graph)
+
+    # Get anatomical axis information for LAD/LCx spatial validation
+    # LAD runs anteriorly, LCx runs posteriorly
+    if anatomical_info is not None:
+        anterior_axis, anterior_sign = get_anatomical_axis_info(anatomical_info, 'anterior')
+        if anterior_axis is None:
+            print("[WARNING] Could not determine anterior direction from anatomical info")
+            print("          Falling back to default assumption: axis 1, negative direction (LPS)")
+            anterior_axis = 1
+            anterior_sign = -1
+        else:
+            print(f"[LCA Labeling] Using anatomical info: anterior = axis {anterior_axis}, "
+                  f"{'positive' if anterior_sign > 0 else 'negative'} direction")
+            print(f"               Coordinate system: {anatomical_info.get('space', 'unknown')}")
+    else:
+        # Default assumption: LPS coordinate system
+        # Axis 1 = posterior-anterior (posterior is positive, anterior is negative)
+        print("[LCA Labeling] No anatomical info provided, assuming LPS coordinate system")
+        print("               (axis 1 = posterior-anterior, anterior is negative)")
+        anterior_axis = 1
+        anterior_sign = -1
 
     # Step 1: Detect trifurcation
     trifurcation_info = detect_lca_trifurcation(updated_graph, trifurcation_threshold_mm)
@@ -688,8 +832,9 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
         direction_1 = compute_direction_vector(bifurcation_node, endpoint_1, spacing_info)
         direction_2 = compute_direction_vector(bifurcation_node, endpoint_2, spacing_info)
 
-        anterior_component_1 = -direction_1[1]
-        anterior_component_2 = -direction_2[1]
+        # Use anatomical info to determine anterior component
+        anterior_component_1 = anterior_sign * direction_1[anterior_axis]
+        anterior_component_2 = anterior_sign * direction_2[anterior_axis]
 
         if anterior_component_1 > anterior_component_2:
             lad_current_label = other_branches[0]
@@ -724,19 +869,20 @@ def annotate_lca_graph_with_branch_labels(graph, spacing_info, trifurcation_thre
             direction_11 = compute_direction_vector(bifurcation_node, endpoint_11, spacing_info)
             direction_12 = compute_direction_vector(bifurcation_node, endpoint_12, spacing_info)
 
-            anterior_component_11 = -direction_11[1]
-            anterior_component_12 = -direction_12[1]
+            # Use anatomical info to determine anterior component
+            anterior_component_11 = anterior_sign * direction_11[anterior_axis]
+            anterior_component_12 = anterior_sign * direction_12[anterior_axis]
 
             branch_11_is_more_anterior = anterior_component_11 > anterior_component_12
 
             if branch_11_is_more_anterior:
                 main_branch_labels = {'LAD': '11', 'LCx': '12'}
-                print(f"               '11' is LAD (axis1={direction_11[1]:.3f}, more anterior)")
-                print(f"               '12' is LCx (axis1={direction_12[1]:.3f}, more posterior)")
+                print(f"               '11' is LAD (anterior_component={anterior_component_11:.3f}, more anterior)")
+                print(f"               '12' is LCx (anterior_component={anterior_component_12:.3f}, more posterior)")
             else:
                 main_branch_labels = {'LAD': '12', 'LCx': '11'}
-                print(f"               '12' is LAD (axis1={direction_12[1]:.3f}, more anterior)")
-                print(f"               '11' is LCx (axis1={direction_11[1]:.3f}, more posterior)")
+                print(f"               '12' is LAD (anterior_component={anterior_component_12:.3f}, more anterior)")
+                print(f"               '11' is LCx (anterior_component={anterior_component_11:.3f}, more posterior)")
                 print(f"               [NOTE] Unusual anatomy: '12' branch is LAD")
 
 

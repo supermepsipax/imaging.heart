@@ -3,6 +3,8 @@ matplotlib
 plotly
 scipy
 scikit-image
+scikit-learn
+joblib
 pynrrd
 pandas
 networkx

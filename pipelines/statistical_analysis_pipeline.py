@@ -535,6 +535,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     
     pp = pprint.PrettyPrinter(depth = 5, width = 120, compact = False)
     pp.pprint(ttest_results)
+    pp.pprint(all_stats_avg)
 
 
     return results_summary

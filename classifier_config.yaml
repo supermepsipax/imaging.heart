@@ -1,0 +1,76 @@
+# ==============================================================================
+# Classifier Pipeline - Configuration File
+# ==============================================================================
+# This file controls parameters for the coronary artery disease classifier
+# ==============================================================================
+
+# ==============================================================================
+# INPUT/OUTPUT CONFIGURATION
+# ==============================================================================
+# Specify EITHER input_folder OR input_tar_file (not both)
+
+# input_folder: "results/to_test"
+# Directory containing individual processed pickle files (*_analysis.pkl)
+# from the batch artery analysis pipeline.
+
+input_tar_file: "all_processed_train_data.tar.gz"
+# Path to a tar archive containing multiple artery analysis files.
+# Supports: .tar.gz (gzip), .tar.bz2 (bz2), .tar.xz (lzma)
+
+output_folder: "classifier_results"
+# Directory for saving classification results including:
+#   - Trained model (.joblib)
+#   - Feature importance (.csv)
+#   - Predictions (.csv)
+#   - Metadata (.joblib)
+
+
+# ==============================================================================
+# MODEL CONFIGURATION
+# ==============================================================================
+
+model_type: "random_forest"
+# Classification model to use
+# Options:
+#   - "logistic_regression": L2-regularized logistic regression (RECOMMENDED)
+#                            Best for small datasets, interpretable coefficients
+#   - "random_forest": Shallow random forest (max_depth=3)
+#                      Good for feature interactions, provides importance scores
+#   - "svm": Support Vector Machine with RBF kernel
+#            Effective in high dimensions, less interpretable
+
+
+# ==============================================================================
+# FEATURE CONFIGURATION
+# ==============================================================================
+
+feature_set: "all"
+# Which features to include in classification
+# Options:
+#   - "priority": 8 most important features
+#                 Includes: main branch dimensions, LAD-LCx angle, LCA/RCA ratio
+#   - "extended": 12 features including tortuosity and inflow angles
+#   - "disease": 15 disease-focused features (RECOMMENDED for classification)
+#                Includes: tapering metrics, Murray's law ratios, bifurcation angles
+#   - "all": All 55+ available features (risk of overfitting with small data)
+
+diameter_method: "slicing"
+# Which diameter measurement method to use
+# Options:
+#   - "slicing": Orthogonal slice-based measurements (more accurate)
+#   - "edt": Euclidean distance transform-based (faster)
+
+
+# ==============================================================================
+# OUTPUT OPTIONS
+# ==============================================================================
+
+verbose: true
+# Print detailed output during classification
+# - true: Print all steps, metrics, and feature importance
+# - false: Print only final results
+
+save_results: true
+# Save trained model and results to output_folder
+# - true: Save model, predictions, and feature importance
+# - false: Run classification without saving

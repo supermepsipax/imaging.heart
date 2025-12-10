@@ -5,7 +5,13 @@ config = load_config('process_config.yaml')
 
 process_batch_arteries(config=config)
 
-#FILE ISSUE
-#DISEASED 6 - incorreclty labelled remus, input is too aligned with LDA
-#DISEASED 8 - original origin node was removed during filtering process to remove short branches. 
 
+  # • Diseased_10 (type: true)
+  # • Diseased_13 (type: pseudo)
+  # • Diseased_19 (type: pseudo)
+  # • Diseased_2 (type: true)
+  # • Diseased_6 (type: pseudo)
+  # • Normal_13 (type: pseudo)
+  # • Normal_16 (type: true)
+  # • Normal_4 (type: true)
+  # • Normal_7 (type: pseudo)

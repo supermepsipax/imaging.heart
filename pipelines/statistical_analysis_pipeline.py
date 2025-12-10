@@ -13,6 +13,8 @@ from analysis import (
     compute_branch_tapering
 )
 from collections import defaultdict
+from scipy.stats import ttest_ind
+import pprint
 
 
 def analyze_artery_batch(input_folder=None, input_tar_file=None,
@@ -157,7 +159,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     }
 
     branches = ["LAD", "LCx", "RCA", "Ramus"]
-    bifurcations = ["LCx_LAD", "LAD_D1"]
+    bifurcations = ["LAD_LCx", "LAD_D1"]
     conditions = ["Normal", "Diseased"]
 
     # Create dictionary for all statistics
@@ -513,6 +515,8 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                     key: np.mean(value) for key, value in metrics.items()
                 }
 
+    ttest_results = compute_ttests(all_stats)
+
     print("\n" + "=" * 80)
     print("BATCH ANALYSIS COMPLETE - SUMMARY")
     print("=" * 80)
@@ -528,9 +532,67 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
     if input_tar_file is not None:
         processed_tarfile.close()
+    
+    pp = pprint.PrettyPrinter(depth = 5, width = 120, compact = False)
+    pp.pprint(ttest_results)
 
 
     return results_summary
+
+def compute_ttests(all_stats):
+    """
+    Perform t-tests for comparison between normal and diseased subjects.
+
+    Args:
+        all_stats(dict): Dictionary with lists of all summarised statistics for all relevant branches.
+
+    Returns:
+        dict: Results from the t-tests.
+    """
+    ttest_results = {}
+
+    normal = all_stats.get("Normal")
+    diseased = all_stats.get("Diseased")
+
+    all_branches = set(normal.keys()) | set(diseased.keys())
+    
+    for branch in all_branches:
+        ttest_results[branch] = {}
+        
+        normal_branch = normal.get(branch)
+        diseased_branch = diseased.get(branch)
+
+        if "Angles" in normal_branch and "Diameters" in normal_branch:
+            ttest_results[branch]["Angles"] = {}
+            ttest_results[branch]["Diameters"] = {}
+
+            for metric in normal_branch["Angles"]:
+                n = normal_branch["Angles"][metric]
+                d = diseased_branch["Angles"][metric]
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch]["Angles"][metric] = {"t-statistic": tstat, "p-value": pvalue}
+            
+            for metric in normal_branch["Diameters"]:
+                n = normal_branch["Diameters"][metric]
+                d = diseased_branch["Diameters"][metric]
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch]["Diameters"][metric] = {"t-statistic": tstat, "p-value": pvalue}
+
+        else:
+            # Main branch metrics
+            for metric in normal_branch:
+                n = normal_branch[metric]
+                d = diseased_branch[metric]
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch][metric] = {"t-statistic": tstat, "p-value": pvalue}
+
+    return ttest_results
 
 
 if __name__ == "__main__":

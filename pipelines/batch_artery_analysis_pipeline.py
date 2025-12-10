@@ -254,7 +254,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 print(f"\n[Distance Transform] Skipping (diameter_method='slicing' - not needed)...")
                 distance_array_full = None
 
-            # Step 2: Process both bodies without saving CSVs
+            # Step 2: Process both bodies
             print(f"\n  --- Processing both vessels for classification ---")
             graphs = []
             body_masks = []

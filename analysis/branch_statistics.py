@@ -67,7 +67,6 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         - Main vessel is identified as the child with the same label as parent
         - If labels don't match, larger diameter branch is considered main vessel
     """
-    # Determine diameter attribute based on method
     if diameter_method == 'slicing':
         diameter_attr = 'mean_diameter_slicing'
     elif diameter_method == 'edt':
@@ -77,34 +76,22 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
 
     bifurcations = {}
 
-    # Iterate through all nodes looking for bifurcations
     for node in graph.nodes():
-        in_degree = graph.in_degree(node)
-        out_degree = graph.out_degree(node)
 
-        # Skip if not a bifurcation (should have 1 parent, 2 children)
-        if in_degree != 1 or out_degree != 2:
-            continue
-
-        # Skip if no angle data available
-        node_data = graph.nodes[node]
-        if 'averaged_angle_A' not in node_data or 'averaged_angle_B' not in node_data:
-            continue
-
-        # Get parent edge and children edges
         parent_edges = list(graph.in_edges(node))
         child_edges = list(graph.out_edges(node))
 
         if len(parent_edges) != 1 or len(child_edges) != 2:
             continue
 
+        node_data = graph.nodes[node]
+        if 'averaged_angle_A' not in node_data or 'averaged_angle_B' not in node_data:
+            continue
+
         parent_edge = parent_edges[0]
         child1_edge = child_edges[0]
         child2_edge = child_edges[1]
 
-        # Skip trifurcations: check if any edge involves Ramus
-        # Trifurcations are represented as two close bifurcations, not a single node
-        # If we see 'Ramus' or 'R1', 'R2', etc. in branch labels, skip this bifurcation
         def get_branch_label_temp(u, v):
             edge_data = graph[u][v]
             # Try LCA attribute first, then RCA, then generic branch_label
@@ -127,19 +114,11 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         )
 
         if is_trifurcation_node:
-            # TODO: In the future, don't skip trifurcations. Instead:
-            #       1. Detect the two sequential bifurcations that make up the trifurcation
-            #       2. Combine/aggregate angles from both bifurcation nodes
-            #       3. Return a different structure for the main LCA bifurcation
-            #          (LAD-LCx-Ramus trifurcation) with combined angle data
-            #       4. May need to compute additional geometric measurements for
-            #          the 3-way split configuration
-            continue  # Skip trifurcation-related bifurcations for now
+            # NOTE: This is done in a seperate function to extract trifurcation
+            continue
 
-        # Get branch labels (check both lca_branch and rca_branch attributes)
         def get_branch_label(u, v):
             edge_data = graph[u][v]
-            # Try LCA attribute first, then RCA, then generic branch_label
             if 'lca_branch' in edge_data:
                 return edge_data['lca_branch']
             elif 'rca_branch' in edge_data:
@@ -155,22 +134,15 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         # Strategy 1: Check if label matches parent (main vessel continues with same label)
         # Strategy 2: Use diameter (larger = main vessel)
         child1_is_main = False
-        child2_is_main = False
 
         if child1_label == parent_label:
             child1_is_main = True
-        elif child2_label == parent_label:
-            child2_is_main = True
         else:
-            # Neither matches parent label, use diameter to decide
             child1_diam = graph[child1_edge[0]][child1_edge[1]].get(diameter_attr, 0)
             child2_diam = graph[child2_edge[0]][child2_edge[1]].get(diameter_attr, 0)
             if child1_diam >= child2_diam:
                 child1_is_main = True
-            else:
-                child2_is_main = True
 
-        # Assign main and side branches
         if child1_is_main:
             main_child_edge = child1_edge
             side_child_edge = child2_edge
@@ -186,18 +158,15 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         # Format: MainBranch_SideBranch (e.g., 'LAD_D1', 'LCx_OM2')
         bifurcation_key = f"{main_label}_{side_label}"
 
-        # Extract angles (keep names exactly as stored in node data)
         angle_A = node_data.get('averaged_angle_A', None)
         angle_B = node_data.get('averaged_angle_B', None)
         angle_C = node_data.get('averaged_angle_C', None)
         inflow_angle = node_data.get('averaged_inflow_angle', None)
 
-        # Extract diameters
         pmv_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr, None)
         dmv_diameter = graph[main_child_edge[0]][main_child_edge[1]].get(diameter_attr, None)
         side_diameter = graph[side_child_edge[0]][side_child_edge[1]].get(diameter_attr, None)
 
-        # Store bifurcation data
         bifurcations[bifurcation_key] = {
             'bifurcation_node': node,
             'main_branch_label': main_label,

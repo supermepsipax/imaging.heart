@@ -160,6 +160,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
     branches = ["LAD", "LCx", "RCA", "Ramus"]
     bifurcations = ["LAD_LCx", "LAD_D1"]
+    trifurcations = ["LAD_LCx_Ramus"]
     conditions = ["Normal", "Diseased"]
 
     # Create dictionary for all statistics
@@ -175,7 +176,26 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         for bifurc in bifurcations:
             all_stats[condition][bifurc] = {
                 "Angles": {key: [] for key in bifurcation_angle_stats.keys()},
-                "Diameters": {key: [] for key in bifurcation_diameter_stats.keys()}
+                "Diameters": {key: [] for key in bifurcation_diameter_stats.keys()}}
+
+            # TRIFURCATION STRUCTURE  ← INSERT HERE
+        all_stats[condition]["LAD_LCx_Ramus"] = {
+            "Main_Plane_Angles": {
+                "averaged_angle_A_main": [],
+                "averaged_angle_B_main": [],
+                "averaged_angle_C_main": [],
+                "averaged_inflow_angle": []
+            },
+            "Additional_Angles": {
+                "averaged_angle_B1": [],
+                "averaged_angle_B2": []
+            },
+            "Diameters": {
+                "parent": [],
+                "LAD": [],
+                "LCx": [],
+                "Ramus": []
+            }
             }
 
     if input_tar_file is not None:
@@ -381,7 +401,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 if verbose:
                     print(f"    [ERROR] Failed to extract bifurcation statistics: {str(e)}")
 
-            # Trifurcation statistics (LCA only)
+             # Trifurcation statistics (LCA only)
             if verbose and artery_type.upper() == 'LCA':
                 print(f"\n  [Trifurcation Statistics]")
             try:
@@ -434,6 +454,65 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             except Exception as e:
                 if verbose:
                     print(f"    [ERROR] Failed to extract trifurcation statistics: {str(e)}")
+
+
+            # Trifurcation statistics (LCA only)
+            if verbose and artery_type.upper() == 'LCA':
+                print(f"\n  [Trifurcation Statistics]")
+    
+            # --- TRIFURCATION EXTRACTION ---
+            try:
+                if artery_type.upper() == 'LCA':
+                    trifurcations_data = extract_trifurcation_statistics(
+                        graph, spacing,
+                        min_depth_mm=2.0, max_depth_mm=7.0, step_mm=0.5,
+                        diameter_method=diameter_method
+                    )
+
+                    if trifurcations_data:
+                        trif_name = "LAD_LCx_Ramus"  # canonical label
+
+                        # Determine condition
+                        condition = "Normal" if "Normal" in patient_id else "Diseased"
+
+                        for _, trif in trifurcations_data.items():
+
+                            # Main plane angles
+                            mpa = trif["main_plane_angles"]
+                            for k in all_stats[condition][trif_name]["Main_Plane_Angles"]:
+                                all_stats[condition][trif_name]["Main_Plane_Angles"][k].append(
+                                    mpa.get(k)
+                                )
+
+                            # Additional angles
+                            aa = trif["additional_angles"]
+                            for k in all_stats[condition][trif_name]["Additional_Angles"]:
+                                all_stats[condition][trif_name]["Additional_Angles"][k].append(
+                                    aa.get(k)
+                                )
+
+                            # Diameters
+                            dia = trif["diameters"]
+                            for k in all_stats[condition][trif_name]["Diameters"]:
+                                all_stats[condition][trif_name]["Diameters"][k].append(
+                                    dia.get(k)
+                                )
+
+                        if verbose:
+                            print("    ✓ Trifurcation statistics added")
+
+                    else:
+                        if verbose:
+                            print("    No trifurcation found")
+
+            except Exception as e:
+                if verbose:
+                    print(f"    [ERROR] Failed to extract trifurcation statistics: {str(e)}")
+
+
+            # except Exception as e:
+            #     if verbose:
+            #         print(f"    [ERROR] Failed to extract trifurcation statistics: {str(e)}")
 
             if verbose:
                 print(f"\n  [All Branch Statistics]")
@@ -492,8 +571,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 'error': str(e)
             })
             results_summary['failed_count'] += 1
-
-    # Compute averages for each list in the dictionary all_stats
+            
     all_stats_avg = {}
     for condition, branches_data in all_stats.items():
         all_stats_avg[condition] = {}
@@ -501,18 +579,37 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         for branch_name, metrics in branches_data.items():
             all_stats_avg[condition][branch_name] = {}
 
-            # Check if branch has bifurcation metrics
-            if "Angles" in metrics and "Diameters" in metrics:
+            # bifurcation metrics
+            if "Angles" in metrics and "Diameters" in metrics and "Type" not in metrics:
                 all_stats_avg[condition][branch_name]["Angles"] = {
-                    key: np.mean(value) for key, value in metrics["Angles"].items()
+                    key: (np.mean(value) if isinstance(value, list) and len(value) > 0 else None)
+                    for key, value in metrics["Angles"].items()
                 }
                 all_stats_avg[condition][branch_name]["Diameters"] = {
-                    key: np.mean(value) for key, value in metrics["Diameters"].items()
+                    key: (np.mean(value) if isinstance(value, list) and len(value) > 0 else None)
+                    for key, value in metrics["Diameters"].items()
                 }
+
+            # trifurcation metrics
+            elif "Type" in metrics and "num_measurements" in metrics:
+                all_stats_avg[condition][branch_name]["Angles"] = {
+                    key: (np.mean(value) if isinstance(value, list) and len(value) > 0 else None)
+                    for key, value in metrics["Angles"].items()
+                }
+                all_stats_avg[condition][branch_name]["Diameters"] = {
+                    key: (np.mean(value) if isinstance(value, list) and len(value) > 0 else None)
+                    for key, value in metrics["Diameters"].items()
+                }
+                # keep metadata as-is
+                all_stats_avg[condition][branch_name]["Type"] = metrics["Type"]
+                all_stats_avg[condition][branch_name]["Branches"] = metrics["Branches"]
+                all_stats_avg[condition][branch_name]["num_measurements"] = metrics["num_measurements"]
+
+            # main branch metrics 
             else:
-                # Main branch
                 all_stats_avg[condition][branch_name] = {
-                    key: np.mean(value) for key, value in metrics.items()
+                    key: (np.mean(value) if isinstance(value, list) and len(value) > 0 else None)
+                    for key, value in metrics.items()
                 }
 
     ttest_results = compute_ttests(all_stats)
@@ -540,60 +637,43 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     return results_summary
 
 def compute_ttests(all_stats):
-    """
-    Perform t-tests for comparison between normal and diseased subjects.
+    results = {}
 
-    Args:
-        all_stats(dict): Dictionary with lists of all summarised statistics for all relevant branches.
+    for branch_name in all_stats["Normal"].keys():
+        results[branch_name] = {}
 
-    Returns:
-        dict: Results from the t-tests.
-    """
-    ttest_results = {}
+        # --- Main branch metrics ---
+        if "total_path_length" in all_stats["Normal"][branch_name]:
+            for metric in ["total_path_length", "tortuosity", "mean_diameter"]:
+                n = all_stats["Normal"][branch_name][metric]
+                d = all_stats["Diseased"][branch_name][metric]
+                if isinstance(n, list) and isinstance(d, list) and len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                    results[branch_name][metric] = {"t": tstat, "p": pvalue}
 
-    normal = all_stats.get("Normal")
-    diseased = all_stats.get("Diseased")
+        # --- Bifurcation metrics ---
+        elif "Angles" in all_stats["Normal"][branch_name] and "Diameters" in all_stats["Normal"][branch_name]:
+            results[branch_name]["Angles"] = {}
+            results[branch_name]["Diameters"] = {}
+            for metric_group in ["Angles", "Diameters"]:
+                for metric, n in all_stats["Normal"][branch_name][metric_group].items():
+                    d = all_stats["Diseased"][branch_name][metric_group][metric]
+                    if isinstance(n, list) and isinstance(d, list) and len(n) > 1 and len(d) > 1:
+                        tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                        results[branch_name][metric_group][metric] = {"t": tstat, "p": pvalue}
 
-    all_branches = set(normal.keys()) | set(diseased.keys())
-    
-    for branch in all_branches:
-        ttest_results[branch] = {}
-        
-        normal_branch = normal.get(branch)
-        diseased_branch = diseased.get(branch)
+        # --- Trifurcation metrics ---
+        elif "Type" in all_stats["Normal"][branch_name]:
+            results[branch_name]["Angles"] = {}
+            results[branch_name]["Diameters"] = {}
+            for metric_group in ["Angles", "Diameters"]:
+                for metric, n in all_stats["Normal"][branch_name][metric_group].items():
+                    d = all_stats["Diseased"][branch_name][metric_group][metric]
+                    if isinstance(n, list) and isinstance(d, list) and len(n) > 1 and len(d) > 1:
+                        tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                        results[branch_name][metric_group][metric] = {"t": tstat, "p": pvalue}
 
-        if "Angles" in normal_branch and "Diameters" in normal_branch:
-            ttest_results[branch]["Angles"] = {}
-            ttest_results[branch]["Diameters"] = {}
-
-            for metric in normal_branch["Angles"]:
-                n = normal_branch["Angles"][metric]
-                d = diseased_branch["Angles"][metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch]["Angles"][metric] = {"t-statistic": tstat, "p-value": pvalue}
-            
-            for metric in normal_branch["Diameters"]:
-                n = normal_branch["Diameters"][metric]
-                d = diseased_branch["Diameters"][metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch]["Diameters"][metric] = {"t-statistic": tstat, "p-value": pvalue}
-
-        else:
-            # Main branch metrics
-            for metric in normal_branch:
-                n = normal_branch[metric]
-                d = diseased_branch[metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch][metric] = {"t-statistic": tstat, "p-value": pvalue}
-
-    return ttest_results
-
+    return results
 
 if __name__ == "__main__":
     results = analyze_artery_batch(

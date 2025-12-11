@@ -14,7 +14,7 @@ from analysis import (
 )
 from collections import defaultdict
 from scipy.stats import ttest_ind
-import csv
+import pprint
 
 
 def analyze_artery_batch(input_folder=None, input_tar_file=None,
@@ -612,54 +612,6 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                     for key, value in metrics.items()
                 }
 
-    # Compute combined averages for both diseased and normal subjects
-    combined_stats = {}
-
-    all_branches = set(all_stats.get("Normal").keys()) | set(all_stats.get("Diseased").keys())
-
-    for branch_name in all_branches:
-        combined_metrics = {}
-
-        if "Angles" in all_stats["Normal"].get(branch_name) or "Angles" in all_stats["Diseased"].get(branch_name):
-            combined_metrics["Angles"] = {}
-            combined_metrics["Diameters"] = {}
-
-            for metric in all_stats["Normal"].get(branch_name).get("Angles"):
-                values_normal = all_stats["Normal"].get(branch_name).get("Angles").get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get("Angles").get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
-                    combined_metrics["Angles"][metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
-                    }
-
-            for metric in all_stats["Normal"].get(branch_name).get("Diameters"):
-                values_normal = all_stats["Normal"].get(branch_name).get("Diameters").get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get("Diameters").get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
-                    combined_metrics["Diameters"][metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
-                    }
-
-        else:
-            combined_metrics = {}
-            metrics = set(all_stats["Normal"].get(branch_name).keys()) | set(all_stats["Diseased"].get(branch_name).keys())
-
-            for metric in metrics:
-                values_normal = all_stats["Normal"].get(branch_name).get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
-                    combined_metrics[metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
-                    }
-        
-        combined_stats[branch_name] = combined_metrics
-
     ttest_results = compute_ttests(all_stats)
 
     print("\n" + "=" * 80)
@@ -677,11 +629,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
     if input_tar_file is not None:
         processed_tarfile.close()
-
-    if output_folder:
-        save_avg_stats_to_csv(all_stats_avg, os.path.join(output_folder, "all_stats_avg.csv"))
-        save_combined_stats_to_csv(combined_stats, os.path.join(output_folder, "combined_stats.csv"))
-        save_ttest_results_to_csv(ttest_results, os.path.join(output_folder, "ttest_results.csv"))
+    
+    pp = pprint.PrettyPrinter(depth = 5, width = 120, compact = False)
+    pp.pprint(ttest_results)
 
 
     return results_summary

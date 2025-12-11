@@ -1,0 +1,8 @@
+lad_length
+lad_diameter
+lcx_length
+lcx_diameter
+rca_length
+rca_diameter
+lad_lcx_angle_B
+lca_rca_length_ratio

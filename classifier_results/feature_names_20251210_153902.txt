@@ -1,0 +1,15 @@
+lad_taper_relative
+lcx_taper_relative
+rca_taper_relative
+lad_lcx_murray_ratio
+lad_d1_murray_ratio
+lad_lcx_angle_B
+lad_d1_angle_B
+lad_lcx_pmv_diameter
+lad_lcx_dmv_diameter
+lad_d1_pmv_diameter
+lad_tortuosity
+lcx_tortuosity
+rca_tortuosity
+diameter_cv
+diameter_range

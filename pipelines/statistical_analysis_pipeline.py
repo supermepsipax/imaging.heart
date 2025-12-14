@@ -406,63 +406,63 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         diameter_method=diameter_method
                     )
 
-                    if verbose:
-                        if trifurcations:
-                            for trifurc_name, trifurc_data in trifurcations.items():
-                                if trifurc_name not in all_stats[condition]:
-                                  continue
+                 
+                    if trifurcations:
+                        for trifurc_name, trifurc_data in trifurcations.items():
+                            if trifurc_name not in all_stats[condition]:
+                                continue
+
+                        main_angles = trifurc_data['main_plane_angles']
+                        additional_angles=trifurc_data['additional_angles']
+                        diameters = trifurc_data['diameters']
+
+                        for main_angle_key, main_angle_value in main_angles.items():
+                            all_stats[condition][trifurc_name]["main_plane_angles"][main_angle_key].append(main_angle_value)
+
+                        for additional_angle_key, additional_angle_value in additional_angles.items():
+                            all_stats[condition][trifurc_name]['additional_angles'][additional_angle_key].append(additional_angle_value)
+                        
+                        for diam_key, diam_value in diameters.items():
+                            all_stats[condition][trifurc_name]["Diameters"][diam_key].append(diam_value)
+
+                        
+                        for trifurc_name, trifurc_data in trifurcations.items():
+                            print(f"\n    {trifurc_name}:")
+                            print(f"      Type: {trifurc_data['type']}")
+                            print(f"      Branches: {', '.join(trifurc_data['branches'])}")
 
                             main_angles = trifurc_data['main_plane_angles']
-                            additional_angles=trifurc_data['additional_angles']
+                            print(f"      Main plane angles (parent-LAD-LCx):")
+                            if main_angles['averaged_angle_A_main'] is not None:
+                                print(f"        Angle A (parent-LCx):     {main_angles['averaged_angle_A_main']:.1f}°")
+                            if main_angles['averaged_angle_B_main'] is not None:
+                                print(f"        Angle B (LAD-LCx):        {main_angles['averaged_angle_B_main']:.1f}°")
+                            if main_angles['averaged_angle_C_main'] is not None:
+                                print(f"        Angle C (parent-LAD):     {main_angles['averaged_angle_C_main']:.1f}°")
+                            if main_angles['averaged_inflow_angle'] is not None:
+                                print(f"        Inflow angle:             {main_angles['averaged_inflow_angle']:.1f}°")
+
+                            add_angles = trifurc_data['additional_angles']
+                            print(f"      Additional angles:")
+                            if add_angles['averaged_angle_B1'] is not None:
+                                print(f"        B1 (LCx-Ramus):           {add_angles['averaged_angle_B1']:.1f}°")
+                            if add_angles['averaged_angle_B2'] is not None:
+                                print(f"        B2 (LAD-Ramus):           {add_angles['averaged_angle_B2']:.1f}°")
+
                             diameters = trifurc_data['diameters']
+                            print(f"      Diameters:")
+                            if diameters['parent'] is not None:
+                                print(f"        Parent:  {diameters['parent']:.2f} mm")
+                            if diameters['LAD'] is not None:
+                                print(f"        LAD:     {diameters['LAD']:.2f} mm")
+                            if diameters['LCx'] is not None:
+                                print(f"        LCx:     {diameters['LCx']:.2f} mm")
+                            if diameters['Ramus'] is not None:
+                                print(f"        Ramus:   {diameters['Ramus']:.2f} mm")
 
-                            for main_angle_key, main_angle_value in main_angles.items():
-                                all_stats[condition][trifurc_name]["main_plane_angles"][main_angle_key].append(main_angle_value)
-
-                            for additional_angle_key, additional_angle_value in additional_angles.items():
-                                all_stats[condition][trifurc_name]['additional_angles'][additional_angle_key].append(additional_angle_value)
-                            
-                            for diam_key, diam_value in diameters.items():
-                                all_stats[condition][trifurc_name]["Diameters"][diam_key].append(diam_value)
-
-                            
-                            for trifurc_name, trifurc_data in trifurcations.items():
-                                print(f"\n    {trifurc_name}:")
-                                print(f"      Type: {trifurc_data['type']}")
-                                print(f"      Branches: {', '.join(trifurc_data['branches'])}")
-
-                                main_angles = trifurc_data['main_plane_angles']
-                                print(f"      Main plane angles (parent-LAD-LCx):")
-                                if main_angles['averaged_angle_A_main'] is not None:
-                                    print(f"        Angle A (parent-LCx):     {main_angles['averaged_angle_A_main']:.1f}°")
-                                if main_angles['averaged_angle_B_main'] is not None:
-                                    print(f"        Angle B (LAD-LCx):        {main_angles['averaged_angle_B_main']:.1f}°")
-                                if main_angles['averaged_angle_C_main'] is not None:
-                                    print(f"        Angle C (parent-LAD):     {main_angles['averaged_angle_C_main']:.1f}°")
-                                if main_angles['averaged_inflow_angle'] is not None:
-                                    print(f"        Inflow angle:             {main_angles['averaged_inflow_angle']:.1f}°")
-
-                                add_angles = trifurc_data['additional_angles']
-                                print(f"      Additional angles:")
-                                if add_angles['averaged_angle_B1'] is not None:
-                                    print(f"        B1 (LCx-Ramus):           {add_angles['averaged_angle_B1']:.1f}°")
-                                if add_angles['averaged_angle_B2'] is not None:
-                                    print(f"        B2 (LAD-Ramus):           {add_angles['averaged_angle_B2']:.1f}°")
-
-                                diameters = trifurc_data['diameters']
-                                print(f"      Diameters:")
-                                if diameters['parent'] is not None:
-                                    print(f"        Parent:  {diameters['parent']:.2f} mm")
-                                if diameters['LAD'] is not None:
-                                    print(f"        LAD:     {diameters['LAD']:.2f} mm")
-                                if diameters['LCx'] is not None:
-                                    print(f"        LCx:     {diameters['LCx']:.2f} mm")
-                                if diameters['Ramus'] is not None:
-                                    print(f"        Ramus:   {diameters['Ramus']:.2f} mm")
-
-                                print(f"      Number of measurements: {trifurc_data['num_measurements']}")
-                        else:
-                            print(f"    No trifurcation found (LAD/LCx/Ramus not all present)")
+                            print(f"      Number of measurements: {trifurc_data['num_measurements']}")
+                    else:
+                        print(f"    No trifurcation found (LAD/LCx/Ramus not all present)")
 
             except Exception as e:
                 if verbose:
@@ -616,7 +616,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                     key: np.std(value) for key, value in metrics.items()
                 }
     # print(all_stats_avg)
-    print(all_stats_std)
+    print(all_stats_avg)
             
     # Compute combined averages for both diseased and normal subjects
     combined_stats = {}

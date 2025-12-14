@@ -226,9 +226,9 @@ def extract_main_branch_statistics(graph, spacing_info, artery_type='LCA', diame
     """
     # Determine which main branches to look for
     if artery_type.upper() == 'LCA':
-        main_branches = ['LAD', 'LCx', 'Ramus']
+        main_branches = ['LAD', 'LCx', 'Ramus', 'D1', 'OM1']
     elif artery_type.upper() == 'RCA':
-        main_branches = ['RCA']
+        main_branches = ['RCA', 'AM1']
     else:
         raise ValueError(f"Unknown artery_type: {artery_type}. Expected 'LCA' or 'RCA'")
 

@@ -162,7 +162,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     trifurcation_main_angle_stats = {"averaged_angle_A_main":[], "averaged_angle_B_main":[], "averaged_angle_C_main":[], "averaged_inflow_angle":[],"additional_angles":[]}
     trifurcation_add_angle_stats={"averaged_angle_B1":{},"averaged_angle_B2":{}}
     trifurcation_diameter_stats = {"parent":[], "LAD":[], "LCx":[], "Ramus":[]}
-    branches = ["LAD", "LCx", "RCA", "Ramus"]
+    branches = ["LAD", "LCx", "RCA", "Ramus", "D1", "OM1", "AM1"]
     bifurcations = ["LAD_LCx", "LAD_D1"]
     conditions = ["Normal", "Diseased"]
     trifurcations = ["LCA_TRIFURCATION"]

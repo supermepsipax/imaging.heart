@@ -555,12 +555,12 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
             else:
                 # Main branch
-                print(f"Metrics:",metrics)
+                # print(f"Metrics:",metrics)
                 all_stats_avg[condition][branch_name] = {
                     key: np.mean(value) for key, value in metrics.items()
                 }
 
-        # Compute averages for each list in the dictionary all_stats
+    # Compute std for each list in the dictionary all_stats
     all_stats_std = {}
     for condition, branches_data in all_stats.items():
         all_stats_std[condition] = {}
@@ -591,11 +591,12 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
             else:
                 # Main branch
-                print(f"Metrics:",metrics)
+                # print(f"Metrics:",metrics)
                 all_stats_std[condition][branch_name] = {
                     key: np.std(value) for key, value in metrics.items()
                 }
-    print(all_stats_avg)
+    # print(all_stats_avg)
+    print(all_stats_std)
     ttest_results = compute_ttests(all_stats)
 
     print("\n" + "=" * 80)

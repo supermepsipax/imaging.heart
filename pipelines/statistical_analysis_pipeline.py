@@ -525,7 +525,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             })
             results_summary['failed_count'] += 1
 
-    # Compute averages for each list in the dictionary all_stats
+    # Compute averages and standard deviations for each list in the dictionary all_stats
     all_stats_avg = {}
     for condition, branches_data in all_stats.items():
         all_stats_avg[condition] = {}
@@ -616,7 +616,36 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 }
     # print(all_stats_avg)
     print(all_stats_std)
+            
+    # Compute combined averages for both diseased and normal subjects
+    combined_stats = {}
+
+    all_branches = set(all_stats.get("Normal").keys()) | set(all_stats.get("Diseased").keys())
+
+    for branch_name in all_branches:
+        combined_metrics = {}
+
+        normal_branch = all_stats.get("Normal", {}).get(branch_name, {})
+        diseased_branch = all_stats.get("Diseased", {}).get(branch_name, {})
+
+        # Bifurcation
+        if "Angles" in normal_branch or "Angles" in diseased_branch:
+            combined_metrics["Angles"] = {}
+            combined_metrics["Diameters"] = {}
+
+            angle_metrics = set(normal_branch.get("Angles", {}).keys()) | set(diseased_branch.get("Angles", {}).keys())
+
+            for metric in angle_metrics:
+                values = normal_branch.get("Angles", {}).get(metric, []) + diseased_branch.get("Angles", {}).get(metric, [])
+
+                if values:
+                    combined_metrics["Angles"][metric] = {
+                        "mean": np.mean(values),
+                        "std": np.std(values)
                     }
+
+            diameter_metrics = set(normal_branch.get("Diameters", {}).keys()) | set(diseased_branch.get("Diameters", {}).keys())
+
             for metric in diameter_metrics:
                 values = normal_branch.get("Diameters", {}).get(metric, []) + diseased_branch.get("Diameters", {}).get(metric, [])
 

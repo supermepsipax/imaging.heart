@@ -159,7 +159,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         "side_branch": []
     }
 
-    trifurcation_main_angle_stats = {"averaged_angle_A_main":[], "averaged_angle_B_main":[], "averaged_angle_C_main":[], "averaged_inflow_angle":[],"additional_angles":[]}
+    trifurcation_main_angle_stats = {"averaged_angle_A_main":[], "averaged_angle_B_main":[], "averaged_angle_C_main":[], "averaged_inflow_angle":[]}
     trifurcation_add_angle_stats={"averaged_angle_B1":{},"averaged_angle_B2":{}}
     trifurcation_diameter_stats = {"parent":[], "LAD":[], "LCx":[], "Ramus":[]}
     branches = ["LAD", "LCx", "RCA", "Ramus", "D1", "OM1", "AM1"]
@@ -405,7 +405,6 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         diameter_method=diameter_method
                     )
 
-                 
                     if trifurcations:
                         for trifurc_name, trifurc_data in trifurcations.items():
                             if trifurc_name not in all_stats[condition]:
@@ -424,44 +423,46 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         for diam_key, diam_value in diameters.items():
                             all_stats[condition][trifurc_name]["Diameters"][diam_key].append(diam_value)
 
+                    if verbose:
+                        if trifurcations:
                         
-                        for trifurc_name, trifurc_data in trifurcations.items():
-                            print(f"\n    {trifurc_name}:")
-                            print(f"      Type: {trifurc_data['type']}")
-                            print(f"      Branches: {', '.join(trifurc_data['branches'])}")
+                            for trifurc_name, trifurc_data in trifurcations.items():
+                                print(f"\n    {trifurc_name}:")
+                                print(f"      Type: {trifurc_data['type']}")
+                                print(f"      Branches: {', '.join(trifurc_data['branches'])}")
 
-                            main_angles = trifurc_data['main_plane_angles']
-                            print(f"      Main plane angles (parent-LAD-LCx):")
-                            if main_angles['averaged_angle_A_main'] is not None:
-                                print(f"        Angle A (parent-LCx):     {main_angles['averaged_angle_A_main']:.1f}°")
-                            if main_angles['averaged_angle_B_main'] is not None:
-                                print(f"        Angle B (LAD-LCx):        {main_angles['averaged_angle_B_main']:.1f}°")
-                            if main_angles['averaged_angle_C_main'] is not None:
-                                print(f"        Angle C (parent-LAD):     {main_angles['averaged_angle_C_main']:.1f}°")
-                            if main_angles['averaged_inflow_angle'] is not None:
-                                print(f"        Inflow angle:             {main_angles['averaged_inflow_angle']:.1f}°")
+                                main_angles = trifurc_data['main_plane_angles']
+                                print(f"      Main plane angles (parent-LAD-LCx):")
+                                if main_angles['averaged_angle_A_main'] is not None:
+                                    print(f"        Angle A (parent-LCx):     {main_angles['averaged_angle_A_main']:.1f}°")
+                                if main_angles['averaged_angle_B_main'] is not None:
+                                    print(f"        Angle B (LAD-LCx):        {main_angles['averaged_angle_B_main']:.1f}°")
+                                if main_angles['averaged_angle_C_main'] is not None:
+                                    print(f"        Angle C (parent-LAD):     {main_angles['averaged_angle_C_main']:.1f}°")
+                                if main_angles['averaged_inflow_angle'] is not None:
+                                    print(f"        Inflow angle:             {main_angles['averaged_inflow_angle']:.1f}°")
 
-                            add_angles = trifurc_data['additional_angles']
-                            print(f"      Additional angles:")
-                            if add_angles['averaged_angle_B1'] is not None:
-                                print(f"        B1 (LCx-Ramus):           {add_angles['averaged_angle_B1']:.1f}°")
-                            if add_angles['averaged_angle_B2'] is not None:
-                                print(f"        B2 (LAD-Ramus):           {add_angles['averaged_angle_B2']:.1f}°")
+                                add_angles = trifurc_data['additional_angles']
+                                print(f"      Additional angles:")
+                                if add_angles['averaged_angle_B1'] is not None:
+                                    print(f"        B1 (LCx-Ramus):           {add_angles['averaged_angle_B1']:.1f}°")
+                                if add_angles['averaged_angle_B2'] is not None:
+                                    print(f"        B2 (LAD-Ramus):           {add_angles['averaged_angle_B2']:.1f}°")
 
-                            diameters = trifurc_data['diameters']
-                            print(f"      Diameters:")
-                            if diameters['parent'] is not None:
-                                print(f"        Parent:  {diameters['parent']:.2f} mm")
-                            if diameters['LAD'] is not None:
-                                print(f"        LAD:     {diameters['LAD']:.2f} mm")
-                            if diameters['LCx'] is not None:
-                                print(f"        LCx:     {diameters['LCx']:.2f} mm")
-                            if diameters['Ramus'] is not None:
-                                print(f"        Ramus:   {diameters['Ramus']:.2f} mm")
+                                diameters = trifurc_data['diameters']
+                                print(f"      Diameters:")
+                                if diameters['parent'] is not None:
+                                    print(f"        Parent:  {diameters['parent']:.2f} mm")
+                                if diameters['LAD'] is not None:
+                                    print(f"        LAD:     {diameters['LAD']:.2f} mm")
+                                if diameters['LCx'] is not None:
+                                    print(f"        LCx:     {diameters['LCx']:.2f} mm")
+                                if diameters['Ramus'] is not None:
+                                    print(f"        Ramus:   {diameters['Ramus']:.2f} mm")
 
-                            print(f"      Number of measurements: {trifurc_data['num_measurements']}")
-                    else:
-                        print(f"    No trifurcation found (LAD/LCx/Ramus not all present)")
+                                print(f"      Number of measurements: {trifurc_data['num_measurements']}")
+                        else:
+                            print(f"    No trifurcation found (LAD/LCx/Ramus not all present)")
 
             except Exception as e:
                 if verbose:
@@ -538,13 +539,15 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 all_stats_avg[condition][branch_name]["Angles"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["Angles"].items()
                 }
                 all_stats_avg[condition][branch_name]["Diameters"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["Diameters"].items()
                 }
 
@@ -552,20 +555,23 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 all_stats_avg[condition][branch_name]["main_plane_angles"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["main_plane_angles"].items()
                 }
 
                 all_stats_avg[condition][branch_name]["additional_angles"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["additional_angles"].items()}
                 
                 all_stats_avg[condition][branch_name]["Diameters"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["Diameters"].items()
                 }
 
@@ -575,7 +581,8 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 all_stats_avg[condition][branch_name] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics.items()
                 }
 
@@ -636,23 +643,33 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             angle_metrics = set(normal_branch.get("Angles", {}).keys()) | set(diseased_branch.get("Angles", {}).keys())
 
             for metric in angle_metrics:
-                values = normal_branch.get("Angles", {}).get(metric, []) + diseased_branch.get("Angles", {}).get(metric, [])
+                normal_values = normal_branch.get("Angles", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Angles", {}).get(metric, [])
+                values = normal_values + diseased_values
 
                 if values:
                     combined_metrics["Angles"][metric] = {
                         "mean": np.mean(values),
-                        "std": np.std(values)
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
 
             diameter_metrics = set(normal_branch.get("Diameters", {}).keys()) | set(diseased_branch.get("Diameters", {}).keys())
 
             for metric in diameter_metrics:
-                values = normal_branch.get("Diameters", {}).get(metric, []) + diseased_branch.get("Diameters", {}).get(metric, [])
+                normal_values = normal_branch.get("Diameters", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Diameters", {}).get(metric, [])
+                values = normal_values + diseased_values
 
                 if values:
                     combined_metrics["Diameters"][metric] = {
                         "mean": np.mean(values),
-                        "std": np.std(values)
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
 
         # Trifurcation
@@ -663,24 +680,34 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 angle_metrics = set(normal_branch.get(angle_type, {}).keys()) | set(diseased_branch.get(angle_type, {}).keys())
 
                 for metric in angle_metrics:
-                    values = normal_branch.get(angle_type, {}).get(metric, []) + diseased_branch.get(angle_type, {}).get(metric, [])
+                    normal_values = normal_branch.get(angle_type, {}).get(metric, [])
+                    diseased_values = diseased_branch.get(angle_type, {}).get(metric, [])
+                    values = normal_values + diseased_values
 
                     if values:
                         combined_metrics[angle_type][metric] = {
                             "mean": np.mean(values),
-                            "std": np.std(values)
+                            "std": np.std(values),
+                            "n": len(values),
+                            "n_normal": len(normal_values),
+                            "n_diseased": len(diseased_values)
                         }
 
             combined_metrics["Diameters"] = {}
             diameter_metrics = set(normal_branch.get("Diameters", {}).keys()) | set(diseased_branch.get("Diameters", {}).keys())
 
             for metric in diameter_metrics:
-                values = normal_branch.get("Diameters", {}).get(metric, []) + diseased_branch.get("Diameters", {}).get(metric, [])
+                normal_values = normal_branch.get("Diameters", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Diameters", {}).get(metric, [])
+                values = normal_values + diseased_values
 
                 if values:
                     combined_metrics["Diameters"][metric] = {
                         "mean": np.mean(values),
-                        "std": np.std(values)
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
 
         # Main branch
@@ -688,12 +715,17 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             metrics = set(normal_branch.keys()) | set(diseased_branch.keys())
 
             for metric in metrics:
-                values = normal_branch.get(metric, []) + diseased_branch.get(metric, [])
+                normal_values = normal_branch.get(metric, [])
+                diseased_values = diseased_branch.get(metric, [])
+                values = normal_values + diseased_values
 
                 if values:
                     combined_metrics[metric] = {
                         "mean": np.mean(values),
-                        "std": np.std(values)
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
         
         combined_stats[branch_name] = combined_metrics
@@ -753,30 +785,30 @@ def save_avg_stats_to_csv(all_stats_avg, output_path):
             # Bifurcation with angles + diameters
             if "Angles" in metrics and "Diameters" in metrics:
                 for metric, value in metrics["Angles"].items():
-                    rows.append([condition, branch, "B_Angle", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "B_Angle", metric, value["mean"], value["std"], value["n"]])
 
                 for metric, value in metrics["Diameters"].items():
-                    rows.append([condition, branch, "B_Diameter", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "B_Diameter", metric, value["mean"], value["std"], value["n"]])
 
             # Trifurcation with main-plane angles + additional angles + diameters 
             elif ("main_plane_angles" in metrics and "additional_angles" in metrics and "Diameters" in metrics):
                 for metric, value in metrics["main_plane_angles"].items():
-                    rows.append([condition, branch, "T_MainPlaneAngle", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "T_MainPlaneAngle", metric, value["mean"], value["std"], value["n"]])
 
                 for metric, value in metrics["additional_angles"].items():
-                    rows.append([condition, branch, "T_AdditionalAngle", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "T_AdditionalAngle", metric, value["mean"], value["std"], value["n"]])
                 
                 for metric, value in metrics["Diameters"].items():
-                    rows.append([condition, branch, "T_Diameter", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "T_Diameter", metric, value["mean"], value["std"], value["n"]])
 
             # Main branch
             else:
                 for metric, value in metrics.items():
-                    rows.append([condition, branch, "Main", metric, value["mean"], value["std"]])
+                    rows.append([condition, branch, "Main", metric, value["mean"], value["std"], value["n"]])
 
     with open(output_path, "w", newline = "") as f:
         writer = csv.writer(f)
-        writer.writerow(["condition", "branch", "metric_type", "metric", "mean", "std"])
+        writer.writerow(["condition", "branch", "metric_type", "metric", "mean", "std", "n"])
         writer.writerows(rows)
 
 def save_combined_stats_to_csv(combined_stats, output_path):
@@ -787,36 +819,45 @@ def save_combined_stats_to_csv(combined_stats, output_path):
         # Bifurcation
         if "Angles" in metrics:
             for metric, value in metrics.get("Angles", {}).items():
-                rows.append([branch, "B_Angle", metric, value["mean"], value["std"]])
+                rows.append([branch, "B_Angle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
         
         if "Diameters" in metrics and "Angles" in metrics:
             for metric, value in metrics.get("Diameters", {}).items():
-                rows.append([branch, "B_Diameters", metric, value["mean"], value["std"]])
+                rows.append([branch, "B_Diameters", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
 
         # Trifurcation 
         if "main_plane_angles" in metrics: 
             for metric, value in metrics.get("main_plane_angles", {}).items():
-                rows.append([branch, "T_MainPlaneAngle", metric, value["mean"], value["std"]])
+                rows.append([branch, "T_MainPlaneAngle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
 
         if "additional_angles" in metrics:
             for metric, value in metrics.get("additional_angles", {}).items():
-                rows.append([branch, "T_AdditionalAngle", metric, value["mean"], value["std"]])
+                rows.append([branch, "T_AdditionalAngle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
         
         if "Diameters" in metrics and ("main_plane_angles" in metrics or "additional_angles" in metrics):
             for metric, value in metrics.get("Diameters", {}).items():
-                rows.append([branch, "T_Diameter", metric, value["mean"], value["std"]])
+                rows.append([branch, "T_Diameter", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
 
         # Main branch
         if not any(key in metrics for key in ["Angles", "main_plane_angles", "additional_angles"]):
                 for metric, value in metrics.items():
-                    rows.append([branch, "Main", metric, value["mean"], value["std"]])
-        # else:
-        #     for metric, value in metrics.items():
-        #         rows.append([branch, "Main", metric, value["mean"], value["std"]])
+                    rows.append([branch, "Main", metric,
+                                 value["mean"], value["std"],
+                                 value["n"], value["n_normal"], value["n_diseased"]])
 
     with open(output_path, "w", newline = "") as f:
         writer = csv.writer(f)
-        writer.writerow(["branch", "metric_type", "metric", "mean", "std"])
+        writer.writerow(["branch", "metric_type", "metric", "mean", "std", "n", "n_normal", "n_diseased"])
         writer.writerows(rows)
 
 def save_ttest_results_to_csv(ttest_results, output_path):
@@ -841,14 +882,14 @@ def save_ttest_results_to_csv(ttest_results, output_path):
 
         # Trifurcation
         if "main_plane_angles" in metrics:
-            for metric, results in metrics.get("main_plane_angles", {}).items():
+            for metric, result in metrics.get("main_plane_angles", {}).items():
                 rows.append([
                     branch, "MainPlaneAngle", metric,
                     result["t-statistic"], result["p-value"],
                     result["n_normal"], result["n_diseased"]])
 
         if "additional_angles" in metrics:
-            for metric, results in metrics.get("additional_angles", {}).items():
+            for metric, result in metrics.get("additional_angles", {}).items():
                 rows.append([
                     branch, "AdditionalAngle", metric,
                     result["t-statistic"], result["p-value"],

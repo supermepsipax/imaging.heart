@@ -56,4 +56,4 @@ sparse_graph = result['sparse_graph']
 visualize_3d_graph(sparse_graph, original_one_sided_mask, dark_mode=True, hide_background=True)
 
 # Visualize just the binary mask
-visualize_binary_mask(original_one_sided_mask, dark_mode=True, hide_background=True)
+# visualize_binary_mask(original_one_sided_mask, dark_mode=True, hide_background=True)

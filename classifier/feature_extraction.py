@@ -150,11 +150,9 @@ def extract_patient_features(
     """
     features = {}
 
-    # Initialize all features with NaN (will be imputed later if needed)
     for name in get_feature_names():
         features[name] = np.nan
 
-    # Track totals for global features
     all_branch_lengths = []
     all_branch_diameters = []
     lca_total_length = 0.0
@@ -180,7 +178,6 @@ def extract_patient_features(
                     diameter_method=diameter_method
                 )
 
-                # LAD features
                 if 'LAD' in lca_main_branches:
                     lad = lca_main_branches['LAD']
                     features['lad_length'] = lad['total_path_length']
@@ -190,14 +187,12 @@ def extract_patient_features(
                     all_branch_lengths.append(lad['total_path_length'])
                     all_branch_diameters.append(lad['mean_diameter'])
 
-                    # Tapering features
                     if lad.get('diameter_profile') and len(lad['diameter_profile']) > 1:
                         taper = compute_branch_tapering(lad['diameter_profile'])
                         features['lad_taper_absolute'] = taper['absolute_change']
                         features['lad_taper_relative'] = taper['relative_change']
                         features['lad_taper_rate'] = taper['tapering_rate']
 
-                # LCx features
                 if 'LCx' in lca_main_branches:
                     lcx = lca_main_branches['LCx']
                     features['lcx_length'] = lcx['total_path_length']
@@ -207,14 +202,12 @@ def extract_patient_features(
                     all_branch_lengths.append(lcx['total_path_length'])
                     all_branch_diameters.append(lcx['mean_diameter'])
 
-                    # Tapering features
                     if lcx.get('diameter_profile') and len(lcx['diameter_profile']) > 1:
                         taper = compute_branch_tapering(lcx['diameter_profile'])
                         features['lcx_taper_absolute'] = taper['absolute_change']
                         features['lcx_taper_relative'] = taper['relative_change']
                         features['lcx_taper_rate'] = taper['tapering_rate']
 
-                # Ramus features (optional)
                 if 'Ramus' in lca_main_branches:
                     ramus = lca_main_branches['Ramus']
                     features['ramus_present'] = 1
@@ -242,14 +235,12 @@ def extract_patient_features(
                 if 'LCA_TRIFURCATION' in trifurcations:
                     trifurc = trifurcations['LCA_TRIFURCATION']
 
-                    # Main plane angles
                     main_angles = trifurc.get('main_plane_angles', {})
                     features['trifurc_angle_A_main'] = main_angles.get('averaged_angle_A_main')
                     features['trifurc_angle_B_main'] = main_angles.get('averaged_angle_B_main')
                     features['trifurc_angle_C_main'] = main_angles.get('averaged_angle_C_main')
                     features['trifurc_inflow_angle'] = main_angles.get('averaged_inflow_angle')
 
-                    # Additional angles (Ramus-related)
                     add_angles = trifurc.get('additional_angles', {})
                     features['trifurc_angle_B1'] = add_angles.get('averaged_angle_B1')
                     features['trifurc_angle_B2'] = add_angles.get('averaged_angle_B2')
@@ -267,7 +258,6 @@ def extract_patient_features(
 
                 total_bifurcation_count += len(lca_bifurcations)
 
-                # LAD-LCx bifurcation (primary bifurcation)
                 if 'LAD_LCx' in lca_bifurcations:
                     bif = lca_bifurcations['LAD_LCx']
                     angles = bif['angles']
@@ -290,7 +280,6 @@ def extract_patient_features(
                         murray = (dmv**3 + side**3) / (pmv**3)
                         features['lad_lcx_murray_ratio'] = murray
 
-                # LAD-D1 bifurcation (first diagonal)
                 if 'LAD_D1' in lca_bifurcations:
                     bif = lca_bifurcations['LAD_D1']
                     angles = bif['angles']
@@ -305,7 +294,6 @@ def extract_patient_features(
                     features['lad_d1_dmv_diameter'] = diameters.get('DMV')
                     features['lad_d1_side_diameter'] = diameters.get('side_branch')
 
-                    # Murray's law ratio
                     pmv = diameters.get('PMV')
                     dmv = diameters.get('DMV')
                     side = diameters.get('side_branch')
@@ -325,7 +313,6 @@ def extract_patient_features(
                 )
                 lca_branch_count = len(lca_all_branches)
 
-                # Collect side branch statistics
                 diagonal_lengths = []
                 diagonal_diameters = []
                 om_lengths = []
@@ -341,7 +328,6 @@ def extract_patient_features(
                     if diameter > 0:
                         all_branch_diameters.append(diameter)
 
-                    # Categorize side branches
                     if label.startswith('D') and label[1:].isdigit():
                         # Diagonal branch (D1, D2, etc.)
                         if length > 0:
@@ -355,12 +341,10 @@ def extract_patient_features(
                         if diameter > 0:
                             om_diameters.append(diameter)
 
-                # Aggregate diagonal features
                 features['diagonal_count'] = len(diagonal_lengths)
                 features['diagonal_total_length'] = sum(diagonal_lengths) if diagonal_lengths else 0
                 features['diagonal_mean_diameter'] = np.mean(diagonal_diameters) if diagonal_diameters else 0
 
-                # Aggregate OM features
                 features['om_count'] = len(om_lengths)
                 features['om_total_length'] = sum(om_lengths) if om_lengths else 0
                 features['om_mean_diameter'] = np.mean(om_diameters) if om_diameters else 0
@@ -385,7 +369,6 @@ def extract_patient_features(
                     diameter_method=diameter_method
                 )
 
-                # RCA features
                 if 'RCA' in rca_main_branches:
                     rca = rca_main_branches['RCA']
                     features['rca_length'] = rca['total_path_length']
@@ -395,7 +378,6 @@ def extract_patient_features(
                     all_branch_lengths.append(rca['total_path_length'])
                     all_branch_diameters.append(rca['mean_diameter'])
 
-                    # Tapering features
                     if rca.get('diameter_profile') and len(rca['diameter_profile']) > 1:
                         taper = compute_branch_tapering(rca['diameter_profile'])
                         features['rca_taper_absolute'] = taper['absolute_change']

@@ -126,10 +126,8 @@ def evaluate_loocv(
     """
     loo = LeaveOneOut()
 
-    # Get predictions for each held-out sample
     y_pred = cross_val_predict(model, X, y, cv=loo)
 
-    # Get probability predictions
     try:
         y_prob = cross_val_predict(model, X, y, cv=loo, method='predict_proba')[:, 1]
         auc = roc_auc_score(y, y_prob)
@@ -137,11 +135,9 @@ def evaluate_loocv(
         y_prob = None
         auc = None
 
-    # Calculate metrics
     acc = accuracy_score(y, y_pred)
     cm = confusion_matrix(y, y_pred)
 
-    # Calculate sensitivity and specificity
     tn, fp, fn, tp = cm.ravel()
     sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
@@ -208,7 +204,6 @@ def evaluate_repeated_cv(
         random_state=42
     )
 
-    # Get scores across all folds and repeats
     auc_scores = cross_val_score(model, X, y, cv=cv, scoring='roc_auc')
     acc_scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
 
@@ -342,18 +337,15 @@ def save_model(
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    # Save model
     model_path = save_dir / f'coronary_classifier_{timestamp}.joblib'
     joblib.dump(model, model_path)
 
-    # Save feature names if provided
     if feature_names is not None:
         feature_path = save_dir / f'feature_names_{timestamp}.txt'
         with open(feature_path, 'w') as f:
             for feat in feature_names:
                 f.write(f"{feat}\n")
 
-    # Save metadata if provided
     if metadata is not None:
         metadata_path = save_dir / f'metadata_{timestamp}.joblib'
         joblib.dump(metadata, metadata_path)
@@ -391,13 +383,10 @@ def predict_patient(
     Returns:
         Dictionary with prediction and probability
     """
-    # Build feature vector in correct order
     X = pd.DataFrame([{name: features.get(name, np.nan) for name in feature_names}])
 
-    # Handle missing values
     X = X.fillna(X.median())
 
-    # Make prediction
     prediction = model.predict(X)[0]
     probability = model.predict_proba(X)[0]
 
@@ -454,7 +443,6 @@ def compare_models(
             auc_str = f"{auc:.3f}" if isinstance(auc, float) else auc
             print(f"  {model_type:<25} {acc:.3f}        {auc_str}")
 
-        # Find best model
         best_model = max(results.items(),
                         key=lambda x: x[1]['auc_roc'] if x[1]['auc_roc'] else 0)
         print("-" * 60)

@@ -497,6 +497,7 @@ def extract_all_branch_statistics(graph, spacing_info, diameter_method='slicing'
             'length': edge_data.get('path_length_mm', 0.0),
             'mean_diameter': edge_data.get(diameter_attr, 0.0),
             'diameter_profile': edge_data.get(profile_attr, []),
+            'tortuosity': edge_data.get('path_length_mm', 0.0)/edge_data.get('direct_path_length_mm', 0.0),
             'start_coord': u,
             'end_coord': v,
             'edge_info': edge_data.get('edge_info', None)

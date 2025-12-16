@@ -610,7 +610,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
                 if visualize:
                     print(f"  [Visualization] Opening 3D visualization for {label}...")
                     viz_title = f"{file_basename} - {label}"
-                    visualize_3d_graph(graph, binary_mask=mask, title=viz_title, dark_mode=True, hide_background=True)
+                    visualize_3d_graph(graph, binary_mask=mask, title=viz_title, dark_mode=False, hide_background=False)
                     print(f"                  Visualization displayed")
 
                 vessels_saved += 1

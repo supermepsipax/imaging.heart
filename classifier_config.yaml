@@ -29,7 +29,7 @@ output_folder: "classifier_results"
 # MODEL CONFIGURATION
 # ==============================================================================
 
-model_type: "random_forest"
+model_type: "logistic_regression"
 # Classification model to use
 # Options:
 #   - "logistic_regression": L2-regularized logistic regression (RECOMMENDED)

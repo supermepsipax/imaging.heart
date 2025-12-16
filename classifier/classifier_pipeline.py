@@ -67,7 +67,6 @@ def load_patient_data(
     if input_folder is not None and input_tar_file is not None:
         raise ValueError("Cannot specify both input_folder and input_tar_file")
 
-    # Collect all analysis files
     analysis_files = {}  # {identifier: filepath or TarInfo}
 
     if input_tar_file is not None:
@@ -104,14 +103,12 @@ def load_patient_data(
         'rca_data': None
     })
 
-    # Open tar file if needed (keep open for all reads)
     tar_file = None
     if input_tar_file is not None:
         tar_file = tarfile.open(input_tar_file, 'r:*')
 
     try:
         for identifier, (source_type, source) in analysis_files.items():
-            # Load the data
             if source_type == 'tar':
                 file_obj = tar_file.extractfile(source)
                 if file_obj is None:
@@ -120,26 +117,22 @@ def load_patient_data(
             else:
                 data = load_artery_analysis(source)
 
-            # Extract patient ID and artery type
             metadata = data.get('metadata', {})
             artery_type = metadata.get('artery', 'unknown').upper()
             file_basename = metadata.get('file_basename', identifier)
 
             # Determine patient ID (remove artery suffix)
-            # Handle various naming patterns
             patient_id = file_basename
             for suffix in ['_LCA', '_RCA', '_lca', '_rca', '_artery_1', '_artery_2']:
                 if patient_id.endswith(suffix):
                     patient_id = patient_id[:-len(suffix)]
                     break
 
-            # Determine label from filename
             if 'Normal' in file_basename or 'normal' in file_basename:
                 label = 0  # Healthy
             else:
                 label = 1  # Diseased
 
-            # Store data
             patients_data[patient_id]['patient_id'] = patient_id
             patients_data[patient_id]['label'] = label
 
@@ -152,22 +145,18 @@ def load_patient_data(
         if tar_file is not None:
             tar_file.close()
 
-    # Convert to list and filter out incomplete patients
     patients_list = []
     for patient_id, pdata in patients_data.items():
-        # Require at least one artery
         if pdata['lca_data'] is not None or pdata['rca_data'] is not None:
             patients_list.append(pdata)
 
     if verbose:
         print(f"Organized into {len(patients_list)} patients")
 
-        # Count labels
         n_healthy = sum(1 for p in patients_list if p['label'] == 0)
         n_diseased = sum(1 for p in patients_list if p['label'] == 1)
         print(f"  Healthy: {n_healthy}, Diseased: {n_diseased}")
 
-        # Count complete patients (both LCA and RCA)
         n_complete = sum(1 for p in patients_list
                         if p['lca_data'] is not None and p['rca_data'] is not None)
         print(f"  Complete (LCA + RCA): {n_complete}")
@@ -212,13 +201,11 @@ def run_classification_pipeline(
             - patient_ids: Patient identifiers
             - model_path: Path to saved model (if save_results=True)
     """
-    # Load config if provided
     if config is None and config_path is not None:
         config = load_config(config_path)
     if config is None:
         config = {}
 
-    # Get parameters from config or use defaults
     if input_folder is None:
         input_folder = config.get('input_folder')
     if input_tar_file is None:
@@ -226,14 +213,12 @@ def run_classification_pipeline(
     if output_folder is None:
         output_folder = config.get('output_folder', 'classifier_results')
 
-    # Read model/feature parameters from config (use function defaults if not in config)
     model_type = config.get('model_type', model_type)
     feature_set = config.get('feature_set', feature_set)
     diameter_method = config.get('diameter_method', diameter_method)
     save_results = config.get('save_results', save_results)
     verbose = config.get('verbose', verbose)
 
-    # Print header
     if verbose:
         print("=" * 80)
         print("CORONARY ARTERY DISEASE CLASSIFIER")
@@ -331,7 +316,6 @@ def run_classification_pipeline(
         X_imputed, y, model_type=model_type, verbose=verbose
     )
 
-    # Get feature importance
     feature_importance = get_feature_importance(
         final_model,
         X_imputed.columns.tolist()
@@ -370,13 +354,11 @@ def run_classification_pipeline(
             metadata=metadata
         )
 
-        # Save feature importance
         importance_path = Path(output_folder) / 'feature_importance.csv'
         feature_importance.to_csv(importance_path)
         if verbose:
             print(f"  Feature importance saved to: {importance_path}")
 
-        # Save predictions
         predictions_df = pd.DataFrame({
             'patient_id': patient_ids,
             'true_label': y,
@@ -445,7 +427,6 @@ def run_model_comparison(
         print("MODEL COMPARISON")
         print("=" * 80)
 
-    # Load and prepare data
     patients_data = load_patient_data(
         input_folder=input_folder,
         input_tar_file=input_tar_file,
@@ -464,14 +445,12 @@ def run_model_comparison(
 
     X = impute_missing_values(X, strategy='median')
 
-    # Compare models
     results = compare_models(X, y, verbose=verbose)
 
     return results
 
 
 if __name__ == "__main__":
-    # Example usage
     import sys
 
     if len(sys.argv) < 2:
@@ -482,17 +461,14 @@ if __name__ == "__main__":
     input_path = sys.argv[1]
     do_compare = '--compare' in sys.argv
 
-    # Determine input type
     if input_path.endswith('.tar.gz') or input_path.endswith('.tar'):
         input_kwargs = {'input_tar_file': input_path}
     else:
         input_kwargs = {'input_folder': input_path}
 
     if do_compare:
-        # Run model comparison
         results = run_model_comparison(**input_kwargs, verbose=True)
     else:
-        # Run full pipeline
         results = run_classification_pipeline(
             **input_kwargs,
             model_type='logistic_regression',

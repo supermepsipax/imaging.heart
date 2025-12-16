@@ -159,6 +159,13 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         "side_branch": []
     }
 
+    distance_between_bifurcation_stats = {
+        "LMB (LEFT OSTIUM)": [],
+        "FIRST DIAGONAL (LMB)": [],
+        "OBTUSE MARGINAL (LMB)": [],
+        "ACUTE MARGINAL (RIGHT OSTIUM)": []
+    }
+
     trifurcation_main_angle_stats = {"averaged_angle_A_main":[], "averaged_angle_B_main":[], "averaged_angle_C_main":[], "averaged_inflow_angle":[]}
     trifurcation_add_angle_stats={"averaged_angle_B1":{},"averaged_angle_B2":{}}
     trifurcation_diameter_stats = {"parent":[], "LAD":[], "LCx":[], "Ramus":[]}
@@ -483,7 +490,18 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
                         for branch_label in sorted(branches_by_label.keys()):
                             branches = branches_by_label[branch_label]
+                            branches = sorted(branches, key=lambda b: len(b['edge_info']) if b['edge_info'] else 0)
                             print(f"\n    {branch_label}: ({len(branches)} segment{'s' if len(branches) > 1 else ''})")
+                            
+                            if branch_label == "Left_Main":
+                                distance_between_bifurcation_stats["LMB (LEFT OSTIUM)"].append(branches[0]['length'])
+                            elif branch_label == "LAD":
+                                distance_between_bifurcation_stats["FIRST DIAGONAL (LMB)"].append(branches[0]['length'])
+                            elif branch_label == "LCx":
+                                distance_between_bifurcation_stats["OBTUSE MARGINAL (LMB)"].append(branches[0]['length'])
+                            elif branch_label == "RCA":
+                                distance_between_bifurcation_stats["ACUTE MARGINAL (RIGHT OSTIUM)"].append(branches[0]['length'])
+
 
                             for i, branch in enumerate(branches, 1):
                                 if len(branches) > 1:
@@ -750,6 +768,13 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     
     pp = pprint.PrettyPrinter(depth = 5, width = 120, compact = False)
     #pp.pprint(all_stats)
+
+    print("\n" + "=" * 80)
+    print("DISTANCE BETWEEN BIFURCATION STATS")
+    print("=" * 80)
+    for key, value in distance_between_bifurcation_stats.items():
+        print(f"{key}: Mean Length: {np.mean(value)}, STD: {np.std(value)}")
+
 
     if output_folder:
         save_avg_stats_to_csv(all_stats_avg, os.path.join(output_folder, "all_stats_avg.csv"))

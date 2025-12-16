@@ -500,7 +500,7 @@ def extract_all_branch_statistics(graph, spacing_info, diameter_method='slicing'
             'tortuosity': edge_data.get('path_length_mm', 0.0)/edge_data.get('direct_path_length_mm', 0.0),
             'start_coord': u,
             'end_coord': v,
-            'edge_info': edge_data.get('edge_info', None)
+            'edge_info': edge_data.get('edge_position', None)
         }
 
         branches.append(branch_info)

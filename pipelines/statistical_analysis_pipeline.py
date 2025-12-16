@@ -14,6 +14,7 @@ from analysis import (
 )
 from collections import defaultdict
 from scipy.stats import ttest_ind
+import pprint
 import csv
 
 
@@ -158,9 +159,13 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         "side_branch": []
     }
 
-    branches = ["LAD", "LCx", "RCA", "Ramus"]
-    bifurcations = ["LAD_LCx", "LAD_D1"]
+    trifurcation_main_angle_stats = {"averaged_angle_A_main":[], "averaged_angle_B_main":[], "averaged_angle_C_main":[], "averaged_inflow_angle":[]}
+    trifurcation_add_angle_stats={"averaged_angle_B1":{},"averaged_angle_B2":{}}
+    trifurcation_diameter_stats = {"parent":[], "LAD":[], "LCx":[], "Ramus":[]}
+    branches = ["LAD", "LCx", "RCA", "Ramus", "D1", "OM1", "AM1"]
+    bifurcations = ["LAD_LCx", "LAD_D1", "RCA_AM1", "LCx_OM1"]
     conditions = ["Normal", "Diseased"]
+    trifurcations = ["LCA_TRIFURCATION"]
 
     # Create dictionary for all statistics
     all_stats = {}
@@ -177,10 +182,16 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 "Angles": {key: [] for key in bifurcation_angle_stats.keys()},
                 "Diameters": {key: [] for key in bifurcation_diameter_stats.keys()}
             }
+        for trifurc in trifurcations:
+            all_stats[condition][trifurc] = {
+                "main_plane_angles": {key:[] for key in trifurcation_main_angle_stats.keys()},
+                "additional_angles": {key:[] for key in trifurcation_add_angle_stats.keys()},
+                "Diameters": {key: [] for key in trifurcation_diameter_stats.keys()}
+            }
 
     if input_tar_file is not None:
         processed_tarfile = tarfile.open(input_tar_file, 'r:*')
-
+        
     for file_idx, (identifier, item) in enumerate(analysis_items, 1):
         print(f"\n{'=' * 80}")
         print(f"Processing {file_idx}/{len(analysis_items)}: {identifier}")
@@ -342,6 +353,8 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         angles = bifurc_data['angles']
                         diameters = bifurc_data['diameters']
 
+                        
+
                         for angle_key, angle_value in angles.items():
                             all_stats[condition][bifurc_name]["Angles"][angle_key].append(angle_value)
                         
@@ -350,6 +363,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         
 
                 if verbose:
+                    
                     if bifurcations:
                         for bifurc_name, bifurc_data in bifurcations.items():
                             print(f"\n    {bifurc_name}:")
@@ -391,8 +405,27 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                         diameter_method=diameter_method
                     )
 
+                    if trifurcations:
+                        for trifurc_name, trifurc_data in trifurcations.items():
+                            if trifurc_name not in all_stats[condition]:
+                                continue
+
+                        main_angles = trifurc_data['main_plane_angles']
+                        additional_angles=trifurc_data['additional_angles']
+                        diameters = trifurc_data['diameters']
+
+                        for main_angle_key, main_angle_value in main_angles.items():
+                            all_stats[condition][trifurc_name]["main_plane_angles"][main_angle_key].append(main_angle_value)
+
+                        for additional_angle_key, additional_angle_value in additional_angles.items():
+                            all_stats[condition][trifurc_name]['additional_angles'][additional_angle_key].append(additional_angle_value)
+                        
+                        for diam_key, diam_value in diameters.items():
+                            all_stats[condition][trifurc_name]["Diameters"][diam_key].append(diam_value)
+
                     if verbose:
                         if trifurcations:
+                        
                             for trifurc_name, trifurc_data in trifurcations.items():
                                 print(f"\n    {trifurc_name}:")
                                 print(f"      Type: {trifurc_data['type']}")
@@ -493,7 +526,7 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             })
             results_summary['failed_count'] += 1
 
-    # Compute averages for each list in the dictionary all_stats
+    # Compute averages and standard deviations for each list in the dictionary all_stats
     all_stats_avg = {}
     for condition, branches_data in all_stats.items():
         all_stats_avg[condition] = {}
@@ -506,24 +539,91 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 all_stats_avg[condition][branch_name]["Angles"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["Angles"].items()
                 }
                 all_stats_avg[condition][branch_name]["Diameters"] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics["Diameters"].items()
                 }
+
+            elif "main_plane_angles" in metrics and "Diameters" in metrics:
+                all_stats_avg[condition][branch_name]["main_plane_angles"] = {
+                    key: {
+                        "mean": np.mean(value),
+                        "std": np.std(value),
+                        "n": len(value)
+                    } for key, value in metrics["main_plane_angles"].items()
+                }
+
+                all_stats_avg[condition][branch_name]["additional_angles"] = {
+                    key: {
+                        "mean": np.mean(value),
+                        "std": np.std(value),
+                        "n": len(value)
+                    } for key, value in metrics["additional_angles"].items()}
+                
+                all_stats_avg[condition][branch_name]["Diameters"] = {
+                    key: {
+                        "mean": np.mean(value),
+                        "std": np.std(value),
+                        "n": len(value)
+                    } for key, value in metrics["Diameters"].items()
+                }
+
             else:
                 # Main branch
+                # print(f"Metrics:",metrics)
                 all_stats_avg[condition][branch_name] = {
                     key: {
                         "mean": np.mean(value),
-                        "std": np.std(value)
+                        "std": np.std(value),
+                        "n": len(value)
                     } for key, value in metrics.items()
                 }
 
+    # Compute std for each list in the dictionary all_stats
+    all_stats_std = {}
+    for condition, branches_data in all_stats.items():
+        all_stats_std[condition] = {}
+
+        for branch_name, metrics in branches_data.items():
+            all_stats_std[condition][branch_name] = {}
+
+            # Check if branch has bifurcation metrics
+            if "Angles" in metrics and "Diameters" in metrics:
+                all_stats_std[condition][branch_name]["Angles"] = {
+                    key: np.std(value) for key, value in metrics["Angles"].items()
+                }
+                all_stats_std[condition][branch_name]["Diameters"] = {
+                    key: np.std(value) for key, value in metrics["Diameters"].items()
+                }
+
+            elif "main_plane_angles" in metrics and "Diameters" in metrics:
+                all_stats_std[condition][branch_name]["main_plane_angles"] = {
+                    key: np.std(value) for key, value in metrics["main_plane_angles"].items()
+                }
+
+                all_stats_std[condition][branch_name]["additional_angles"] = {
+                    key: np.std(value) for key, value in metrics["additional_angles"].items()}
+                
+                all_stats_std[condition][branch_name]["Diameters"] = {
+                    key: np.std(value) for key, value in metrics["Diameters"].items()
+                }
+
+            else:
+                # Main branch
+                # print(f"Metrics:",metrics)
+                all_stats_std[condition][branch_name] = {
+                    key: np.std(value) for key, value in metrics.items()
+                }
+    # print(all_stats_avg)
+    print(all_stats_avg)
+            
     # Compute combined averages for both diseased and normal subjects
     combined_stats = {}
 
@@ -532,42 +632,100 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
     for branch_name in all_branches:
         combined_metrics = {}
 
-        if "Angles" in all_stats["Normal"].get(branch_name) or "Angles" in all_stats["Diseased"].get(branch_name):
+        normal_branch = all_stats.get("Normal", {}).get(branch_name, {})
+        diseased_branch = all_stats.get("Diseased", {}).get(branch_name, {})
+
+        # Bifurcation
+        if "Angles" in normal_branch or "Angles" in diseased_branch:
             combined_metrics["Angles"] = {}
             combined_metrics["Diameters"] = {}
 
-            for metric in all_stats["Normal"].get(branch_name).get("Angles"):
-                values_normal = all_stats["Normal"].get(branch_name).get("Angles").get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get("Angles").get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
+            angle_metrics = set(normal_branch.get("Angles", {}).keys()) | set(diseased_branch.get("Angles", {}).keys())
+
+            for metric in angle_metrics:
+                normal_values = normal_branch.get("Angles", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Angles", {}).get(metric, [])
+                values = normal_values + diseased_values
+
+                if values:
                     combined_metrics["Angles"][metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
+                        "mean": np.mean(values),
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
 
-            for metric in all_stats["Normal"].get(branch_name).get("Diameters"):
-                values_normal = all_stats["Normal"].get(branch_name).get("Diameters").get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get("Diameters").get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
+            diameter_metrics = set(normal_branch.get("Diameters", {}).keys()) | set(diseased_branch.get("Diameters", {}).keys())
+
+            for metric in diameter_metrics:
+                normal_values = normal_branch.get("Diameters", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Diameters", {}).get(metric, [])
+                values = normal_values + diseased_values
+
+                if values:
                     combined_metrics["Diameters"][metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
+                        "mean": np.mean(values),
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
 
+        # Trifurcation
+        elif ("main_plane_angles" in normal_branch or "main_plane_angles" in diseased_branch):
+            for angle_type in ["main_plane_angles", "additional_angles"]:
+                combined_metrics[angle_type] = {}
+
+                angle_metrics = set(normal_branch.get(angle_type, {}).keys()) | set(diseased_branch.get(angle_type, {}).keys())
+
+                for metric in angle_metrics:
+                    normal_values = normal_branch.get(angle_type, {}).get(metric, [])
+                    diseased_values = diseased_branch.get(angle_type, {}).get(metric, [])
+                    values = normal_values + diseased_values
+
+                    if values:
+                        combined_metrics[angle_type][metric] = {
+                            "mean": np.mean(values),
+                            "std": np.std(values),
+                            "n": len(values),
+                            "n_normal": len(normal_values),
+                            "n_diseased": len(diseased_values)
+                        }
+
+            combined_metrics["Diameters"] = {}
+            diameter_metrics = set(normal_branch.get("Diameters", {}).keys()) | set(diseased_branch.get("Diameters", {}).keys())
+
+            for metric in diameter_metrics:
+                normal_values = normal_branch.get("Diameters", {}).get(metric, [])
+                diseased_values = diseased_branch.get("Diameters", {}).get(metric, [])
+                values = normal_values + diseased_values
+
+                if values:
+                    combined_metrics["Diameters"][metric] = {
+                        "mean": np.mean(values),
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
+                    }
+
+        # Main branch
         else:
-            combined_metrics = {}
-            metrics = set(all_stats["Normal"].get(branch_name).keys()) | set(all_stats["Diseased"].get(branch_name).keys())
+            metrics = set(normal_branch.keys()) | set(diseased_branch.keys())
 
             for metric in metrics:
-                values_normal = all_stats["Normal"].get(branch_name).get(metric)
-                values_diseased = all_stats["Diseased"].get(branch_name).get(metric)
-                combined_values = values_normal + values_diseased
-                if combined_values:
+                normal_values = normal_branch.get(metric, [])
+                diseased_values = diseased_branch.get(metric, [])
+                values = normal_values + diseased_values
+
+                if values:
                     combined_metrics[metric] = {
-                        "mean": np.mean(combined_values),
-                        "std": np.std(combined_values)
+                        "mean": np.mean(values),
+                        "std": np.std(values),
+                        "n": len(values),
+                        "n_normal": len(normal_values),
+                        "n_diseased": len(diseased_values)
                     }
         
         combined_stats[branch_name] = combined_metrics
@@ -589,6 +747,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
     if input_tar_file is not None:
         processed_tarfile.close()
+    
+    pp = pprint.PrettyPrinter(depth = 5, width = 120, compact = False)
+    #pp.pprint(all_stats)
 
     if output_folder:
         save_avg_stats_to_csv(all_stats_avg, os.path.join(output_folder, "all_stats_avg.csv"))
@@ -597,125 +758,6 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
 
 
     return results_summary
-
-def compute_ttests(all_stats):
-    """
-    Perform t-tests for comparison between normal and diseased subjects.
-
-    Args:
-        all_stats(dict): Dictionary with lists of all summarised statistics for all relevant branches.
-
-    Returns:
-        dict: Results from the t-tests.
-    """
-    ttest_results = {}
-
-    normal = all_stats.get("Normal")
-    diseased = all_stats.get("Diseased")
-
-    all_branches = set(normal.keys()) | set(diseased.keys())
-    
-    for branch in all_branches:
-        ttest_results[branch] = {}
-        
-        normal_branch = normal.get(branch)
-        diseased_branch = diseased.get(branch)
-
-        if "Angles" in normal_branch and "Diameters" in normal_branch:
-            ttest_results[branch]["Angles"] = {}
-            ttest_results[branch]["Diameters"] = {}
-
-            for metric in normal_branch["Angles"]:
-                n = normal_branch["Angles"][metric]
-                d = diseased_branch["Angles"][metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch]["Angles"][metric] = {"t-statistic": tstat, "p-value": pvalue}
-            
-            for metric in normal_branch["Diameters"]:
-                n = normal_branch["Diameters"][metric]
-                d = diseased_branch["Diameters"][metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch]["Diameters"][metric] = {"t-statistic": tstat, "p-value": pvalue}
-
-        else:
-            # Main branch metrics
-            for metric in normal_branch:
-                n = normal_branch[metric]
-                d = diseased_branch[metric]
-
-                if len(n) > 1 and len(d) > 1:
-                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
-                    ttest_results[branch][metric] = {"t-statistic": tstat, "p-value": pvalue}
-
-    return ttest_results
-
-def save_avg_stats_to_csv(all_stats_avg, output_path):
-    rows = []
-
-    for condition, branches in all_stats_avg.items():
-        for branch, metrics in branches.items():
-
-            if "Angles" in metrics and "Diameters" in metrics:
-                for metric, value in metrics["Angles"].items():
-                    rows.append([condition, branch, "Angle", metric, value["mean"], value["std"]])
-
-                for metric, value in metrics["Diameters"].items():
-                    rows.append([condition, branch, "Diameter", metric, value["mean"], value["std"]])
-
-            else:
-                for metric, value in metrics.items():
-                    rows.append([condition, branch, "Main", metric, value["mean"], value["std"]])
-
-    with open(output_path, "w", newline = "") as f:
-        writer = csv.writer(f)
-        writer.writerow(["condition", "branch", "metric_type", "metric", "mean", "std"])
-        writer.writerows(rows)
-
-def save_combined_stats_to_csv(combined_stats, output_path):
-    rows = []
-
-    for branch, metrics in combined_stats.items():
-
-        if "Angles" in metrics and "Diameters" in metrics:
-            for metric, value in metrics["Angles"].items():
-                rows.append([branch, "Angle", metric, value["mean"], value["std"]])
-            
-            for metric, value in metrics["Diameters"].items():
-                rows.append([branch, "Diameters", metric, value["mean"], value["std"]])
-
-        else:
-            for metric, value in metrics.items():
-                rows.append([branch, "Main", metric, value["mean"], value["std"]])
-
-    with open(output_path, "w", newline = "") as f:
-        writer = csv.writer(f)
-        writer.writerow(["branch", "metric_type", "metric", "mean", "std"])
-        writer.writerows(rows)
-
-def save_ttest_results_to_csv(ttest_results, output_path):
-    rows = []
-
-    for branch, metrics in ttest_results.items():
-
-        if "Angles" in metrics and "Diameters" in metrics:
-            for metric, result in metrics["Angles"].items():
-                rows.append([branch, "Angle", metric, result["t-statistic"], result["p-value"]])
-            
-            for metric, result in metrics["Diameters"].items():
-                rows.append([branch, "Diameter", metric, result["t-statistic"], result["p-value"]])
-
-        else:
-            for metric, result in metrics.items():
-                rows.append([branch, "Main", metric, result["t-statistic"], result["p-value"]])
-
-    with open(output_path, "w", newline = "") as f:
-        writer = csv.writer(f)
-        writer.writerow(["branch", "metric_type", "metric", "t-statistic", "p-value"])
-        writer.writerows(rows)
 
 
 if __name__ == "__main__":
@@ -733,3 +775,250 @@ if __name__ == "__main__":
         for failed in results['failed_files']:
             print(f"  - {failed['identifier']}: {failed['error']}")
     print(f"{'=' * 80}")
+
+def save_avg_stats_to_csv(all_stats_avg, output_path):
+    rows = []
+
+    for condition, branches in all_stats_avg.items():
+        for branch, metrics in branches.items():
+
+            # Bifurcation with angles + diameters
+            if "Angles" in metrics and "Diameters" in metrics:
+                for metric, value in metrics["Angles"].items():
+                    rows.append([condition, branch, "B_Angle", metric, value["mean"], value["std"], value["n"]])
+
+                for metric, value in metrics["Diameters"].items():
+                    rows.append([condition, branch, "B_Diameter", metric, value["mean"], value["std"], value["n"]])
+
+            # Trifurcation with main-plane angles + additional angles + diameters 
+            elif ("main_plane_angles" in metrics and "additional_angles" in metrics and "Diameters" in metrics):
+                for metric, value in metrics["main_plane_angles"].items():
+                    rows.append([condition, branch, "T_MainPlaneAngle", metric, value["mean"], value["std"], value["n"]])
+
+                for metric, value in metrics["additional_angles"].items():
+                    rows.append([condition, branch, "T_AdditionalAngle", metric, value["mean"], value["std"], value["n"]])
+                
+                for metric, value in metrics["Diameters"].items():
+                    rows.append([condition, branch, "T_Diameter", metric, value["mean"], value["std"], value["n"]])
+
+            # Main branch
+            else:
+                for metric, value in metrics.items():
+                    rows.append([condition, branch, "Main", metric, value["mean"], value["std"], value["n"]])
+
+    with open(output_path, "w", newline = "") as f:
+        writer = csv.writer(f)
+        writer.writerow(["condition", "branch", "metric_type", "metric", "mean", "std", "n"])
+        writer.writerows(rows)
+
+def save_combined_stats_to_csv(combined_stats, output_path):
+    rows = []
+
+    for branch, metrics in combined_stats.items():
+
+        # Bifurcation
+        if "Angles" in metrics:
+            for metric, value in metrics.get("Angles", {}).items():
+                rows.append([branch, "B_Angle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
+        
+        if "Diameters" in metrics and "Angles" in metrics:
+            for metric, value in metrics.get("Diameters", {}).items():
+                rows.append([branch, "B_Diameters", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
+
+        # Trifurcation 
+        if "main_plane_angles" in metrics: 
+            for metric, value in metrics.get("main_plane_angles", {}).items():
+                rows.append([branch, "T_MainPlaneAngle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
+
+        if "additional_angles" in metrics:
+            for metric, value in metrics.get("additional_angles", {}).items():
+                rows.append([branch, "T_AdditionalAngle", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
+        
+        if "Diameters" in metrics and ("main_plane_angles" in metrics or "additional_angles" in metrics):
+            for metric, value in metrics.get("Diameters", {}).items():
+                rows.append([branch, "T_Diameter", metric,
+                             value["mean"], value["std"],
+                             value["n"], value["n_normal"], value["n_diseased"]])
+
+        # Main branch
+        if not any(key in metrics for key in ["Angles", "main_plane_angles", "additional_angles"]):
+                for metric, value in metrics.items():
+                    rows.append([branch, "Main", metric,
+                                 value["mean"], value["std"],
+                                 value["n"], value["n_normal"], value["n_diseased"]])
+
+    with open(output_path, "w", newline = "") as f:
+        writer = csv.writer(f)
+        writer.writerow(["branch", "metric_type", "metric", "mean", "std", "n", "n_normal", "n_diseased"])
+        writer.writerows(rows)
+
+def save_ttest_results_to_csv(ttest_results, output_path):
+    rows = []
+
+    for branch, metrics in ttest_results.items():
+
+        # Bifurcation
+        if "Angles" in metrics:
+            for metric, result in metrics.get("Angles", {}).items():
+                rows.append([
+                    branch, "B_Angle", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+        if "Diameters" in metrics and "Angles" in metrics:
+            for metric, result in metrics.get("Diameters", {}).items():
+                rows.append([
+                    branch, "B_Diameter", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+        # Trifurcation
+        if "main_plane_angles" in metrics:
+            for metric, result in metrics.get("main_plane_angles", {}).items():
+                rows.append([
+                    branch, "MainPlaneAngle", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+        if "additional_angles" in metrics:
+            for metric, result in metrics.get("additional_angles", {}).items():
+                rows.append([
+                    branch, "AdditionalAngle", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+        if "Diameters" in metrics and ("main_plane_angles" in metrics or "additional_angles" in metrics):
+            for metric, result in metrics.get("Diameters", {}).items():
+                rows.append([
+                    branch, "T_Diameter", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+        # Main branch
+        if not any(key in metrics for key in ["Angles", "main_plane_angles", "additional_angles"]):
+            for metric, result in metrics.items():
+                rows.append([
+                    branch, "Main", metric,
+                    result["t-statistic"], result["p-value"],
+                    result["n_normal"], result["n_diseased"]])
+
+    with open(output_path, "w", newline = "") as f:
+        writer = csv.writer(f)
+        writer.writerow(["branch", "metric_type", "metric", "t_statistic", "p_value", "n_normal", "n_diseased"])
+        writer.writerows(rows)
+
+
+def compute_ttests(all_stats):
+    ttest_results = {}
+
+    normal = all_stats.get("Normal", {})
+    diseased = all_stats.get("Diseased", {})
+
+    all_branches = set(normal.keys()) | set(diseased.keys())
+    
+    for branch in all_branches:
+        ttest_results[branch] = {}
+        
+        normal_branch = normal.get(branch, {})
+        diseased_branch = diseased.get(branch, {})
+
+        # Bifurcation
+        if "Angles" in normal_branch:
+            ttest_results[branch]["Angles"] = {}
+            ttest_results[branch]["Diameters"] = {}
+
+            for metric in normal_branch.get("Angles", {}):
+                n = normal_branch["Angles"].get(metric, [])
+                d = diseased_branch.get("Angles", {}).get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch]["Angles"][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+            
+            for metric in normal_branch.get("Diameters", {}):
+                n = normal_branch["Diameters"].get(metric, [])
+                d = diseased_branch.get("Diameters", {}).get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch]["Diameters"][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+
+        # Trifurcation
+        if "main_plane_angles" in normal_branch:
+            ttest_results[branch]["main_plane_angles"] = {}
+            ttest_results[branch]["additional_angles"] = {}
+            ttest_results[branch]["Diameters"] = {}
+
+            for metric in normal_branch.get("main_plane_angles", {}):
+                n = normal_branch["main_plane_angles"].get(metric, [])
+                d = diseased_branch.get("main_plane_angles", {}).get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                    ttest_results[branch]["main_plane_angles"][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+
+            for metric in normal_branch.get("additional_angles", {}):
+                n = normal_branch["additional_angles"].get(metric, [])
+                d = diseased_branch.get("additional_angles", {}).get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                    ttest_results[branch]["additional_angles"][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+
+            for metric in normal_branch.get("Diameters", {}):
+                n = normal_branch["Diameters"].get(metric, [])
+                d = diseased_branch.get("Diameters", {}).get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var=False)
+                    ttest_results[branch]["Diameters"][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+        # Main branch
+        if not any(key in normal_branch for key in ["Angles", "main_plane_angles", "additional_angles"]):
+            # Main branch metrics
+            for metric in normal_branch:
+                n = normal_branch.get(metric, [])
+                d = diseased_branch.get(metric, [])
+
+                if len(n) > 1 and len(d) > 1:
+                    tstat, pvalue = ttest_ind(n, d, equal_var = False)
+                    ttest_results[branch][metric] = {
+                        "t-statistic": tstat, 
+                        "p-value": pvalue, 
+                        "n_normal": len(n), 
+                        "n_diseased": len(d)
+                        }
+
+    return ttest_results

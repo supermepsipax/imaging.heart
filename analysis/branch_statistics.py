@@ -3,6 +3,107 @@ import networkx as nx
 from typing import Dict, List, Tuple, Optional
 
 
+def extract_local_diameter(edge_data, bifurcation_node, min_dist_mm, max_dist_mm,
+                           spacing_info, diameter_method='slicing'):
+    """
+    Extract mean diameter over a specified path length range from a bifurcation point.
+
+    Orients the voxel path and diameter profile so that index 0 starts at the bifurcation,
+    then measures distance by accumulated path length along voxels.
+
+    Args:
+        edge_data (dict): Edge data dictionary containing 'voxels', diameter profiles, and coordinates
+        bifurcation_node (tuple): Coordinate of the bifurcation/trifurcation node
+        min_dist_mm (float): Minimum path length from bifurcation (mm)
+        max_dist_mm (float): Maximum path length from bifurcation (mm)
+        spacing_info (tuple): Voxel spacing in mm
+        diameter_method (str): 'slicing' or 'edt' - which diameter profile to use
+
+    Returns:
+        float: Mean diameter in the specified range, or None if profile is empty
+
+    Fallback behavior:
+        - If segment length < min_dist_mm: returns mean of entire segment
+        - If segment length > min_dist_mm but < max_dist_mm: uses min_dist_mm to end
+    """
+    # Extract voxels
+    voxel_path = list(edge_data.get('voxels', []))
+    if len(voxel_path) < 2:
+        return None
+
+    # Determine which diameter profile to use
+    if diameter_method == 'slicing':
+        profile_attr = 'diameter_profile_slicing'
+    elif diameter_method == 'edt':
+        profile_attr = 'diameter_profile_edt'
+    else:
+        raise ValueError(f"Unknown diameter_method: {diameter_method}")
+
+    diameter_profile = list(edge_data.get(profile_attr, []))
+    if not diameter_profile or len(diameter_profile) == 0:
+        return None
+
+    # Handle length mismatch
+    if len(voxel_path) != len(diameter_profile):
+        min_len = min(len(voxel_path), len(diameter_profile))
+        voxel_path = voxel_path[:min_len]
+        diameter_profile = diameter_profile[:min_len]
+
+    # Orient voxel path so that voxel_path[0] is closest to bifurcation_node
+    bifurc_coord = np.array(bifurcation_node)
+    voxel_start = np.array(voxel_path[0])
+    voxel_end = np.array(voxel_path[-1])
+
+    dist_start_to_bifurc = np.linalg.norm((voxel_start - bifurc_coord) * np.array(spacing_info))
+    dist_end_to_bifurc = np.linalg.norm((voxel_end - bifurc_coord) * np.array(spacing_info))
+
+    # If end is closer to bifurcation, reverse voxel path
+    if dist_end_to_bifurc < dist_start_to_bifurc:
+        voxel_path = list(reversed(voxel_path))
+
+    # Orient diameter profile so that profile[0] corresponds to bifurcation end
+    profile_start_coord = edge_data.get('diameter_profile_start_coord')
+    profile_end_coord = edge_data.get('diameter_profile_end_coord')
+
+    if profile_start_coord is not None and profile_end_coord is not None:
+        profile_start = np.array(profile_start_coord)
+        profile_end = np.array(profile_end_coord)
+
+        dist_profile_start_to_bifurc = np.linalg.norm((profile_start - bifurc_coord) * np.array(spacing_info))
+        dist_profile_end_to_bifurc = np.linalg.norm((profile_end - bifurc_coord) * np.array(spacing_info))
+
+        # If profile end is closer to bifurcation, reverse diameter profile
+        if dist_profile_end_to_bifurc < dist_profile_start_to_bifurc:
+            diameter_profile = list(reversed(diameter_profile))
+
+    # Calculate cumulative path lengths from bifurcation
+    cumulative_distances = [0.0]
+    for i in range(1, len(voxel_path)):
+        prev_voxel = np.array(voxel_path[i-1])
+        curr_voxel = np.array(voxel_path[i])
+        diff = (curr_voxel - prev_voxel) * np.array(spacing_info)
+        segment_distance = np.linalg.norm(diff)
+        cumulative_distances.append(cumulative_distances[-1] + segment_distance)
+
+    total_length = cumulative_distances[-1]
+
+    # Fallback: if segment is shorter than min_dist, use entire segment
+    if total_length < min_dist_mm:
+        return np.mean(diameter_profile)
+
+    # Find indices within the specified range
+    selected_diameters = []
+    for i, dist in enumerate(cumulative_distances):
+        if min_dist_mm <= dist <= max_dist_mm:
+            selected_diameters.append(diameter_profile[i])
+
+    # If no diameters selected, use entire segment
+    if not selected_diameters:
+        return np.mean(diameter_profile)
+
+    return np.mean(selected_diameters)
+
+
 def _get_branch_label_attr(artery_type):
     """
     Get the correct branch label attribute name based on artery type.
@@ -22,7 +123,9 @@ def _get_branch_label_attr(artery_type):
         return 'branch_label'
 
 
-def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing'):
+def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing',
+                                   diameter_extraction_mode='entire_segment',
+                                   local_diameter_range_mm=None):
     """
     Extract angle and diameter statistics for all bifurcations in the graph.
 
@@ -34,6 +137,8 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         graph (networkx.DiGraph): Directed graph with branch labels and angle measurements
         spacing_info (tuple): Voxel spacing in mm (not currently used, but for consistency)
         diameter_method (str): 'slicing' or 'edt' - which diameter measurement to use
+        diameter_extraction_mode (str): 'entire_segment' or 'local_range' - how to extract diameters
+        local_diameter_range_mm (list): [min_mm, max_mm] range for local extraction (if mode='local_range')
 
     Returns:
         dict: Dictionary keyed by bifurcation identifier (e.g., 'LAD_D1', 'LCx_OM2'):
@@ -166,9 +271,46 @@ def extract_bifurcation_statistics(graph, spacing_info, diameter_method='slicing
         angle_C = node_data.get('averaged_angle_C', None)
         inflow_angle = node_data.get('averaged_inflow_angle', None)
 
-        pmv_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr, None)
-        dmv_diameter = graph[main_child_edge[0]][main_child_edge[1]].get(diameter_attr, None)
-        side_diameter = graph[side_child_edge[0]][side_child_edge[1]].get(diameter_attr, None)
+        # Extract diameters based on extraction mode
+        if diameter_extraction_mode == 'entire_segment':
+            pmv_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr, None)
+            dmv_diameter = graph[main_child_edge[0]][main_child_edge[1]].get(diameter_attr, None)
+            side_diameter = graph[side_child_edge[0]][side_child_edge[1]].get(diameter_attr, None)
+        elif diameter_extraction_mode == 'local_range':
+            if local_diameter_range_mm is None:
+                raise ValueError("local_diameter_range_mm must be provided when diameter_extraction_mode='local_range'")
+
+            min_dist, max_dist = local_diameter_range_mm
+
+            # Extract diameters using local range from bifurcation node
+            pmv_diameter = extract_local_diameter(
+                edge_data=graph[parent_edge[0]][parent_edge[1]],
+                bifurcation_node=node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            dmv_diameter = extract_local_diameter(
+                edge_data=graph[main_child_edge[0]][main_child_edge[1]],
+                bifurcation_node=node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            side_diameter = extract_local_diameter(
+                edge_data=graph[side_child_edge[0]][side_child_edge[1]],
+                bifurcation_node=node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+        else:
+            raise ValueError(f"Unknown diameter_extraction_mode: {diameter_extraction_mode}")
 
         bifurcations[bifurcation_key] = {
             'bifurcation_node': node,
@@ -666,7 +808,9 @@ def _detect_lca_trifurcation(graph):
 
 
 def extract_trifurcation_statistics(graph, spacing_info, min_depth_mm=5.0, max_depth_mm=10.0,
-                                      step_mm=0.5, diameter_method='slicing'):
+                                      step_mm=0.5, diameter_method='slicing',
+                                      diameter_extraction_mode='entire_segment',
+                                      local_diameter_range_mm=None):
     """
     Extract angle statistics for LCA trifurcations (true or pseudo).
 
@@ -682,6 +826,8 @@ def extract_trifurcation_statistics(graph, spacing_info, min_depth_mm=5.0, max_d
         max_depth_mm (float): Maximum depth for angle measurements (default 10.0 mm)
         step_mm (float): Step size for depth increments (default 0.5 mm)
         diameter_method (str): 'slicing' or 'edt' - which diameter measurement to use
+        diameter_extraction_mode (str): 'entire_segment' or 'local_range' - how to extract diameters
+        local_diameter_range_mm (list): [min_mm, max_mm] range for local extraction (if mode='local_range')
 
     Returns:
         dict: Dictionary with trifurcation statistics or empty dict if no trifurcation found:
@@ -750,11 +896,56 @@ def extract_trifurcation_statistics(graph, spacing_info, min_depth_mm=5.0, max_d
         if angle_data is None:
             return {}
 
-        # Extract diameters
-        parent_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr)
-        lad_diameter = graph[lad_edge[0]][lad_edge[1]].get(diameter_attr)
-        lcx_diameter = graph[lcx_edge[0]][lcx_edge[1]].get(diameter_attr)
-        ramus_diameter = graph[ramus_edge[0]][ramus_edge[1]].get(diameter_attr)
+        # Extract diameters based on extraction mode
+        if diameter_extraction_mode == 'entire_segment':
+            parent_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr)
+            lad_diameter = graph[lad_edge[0]][lad_edge[1]].get(diameter_attr)
+            lcx_diameter = graph[lcx_edge[0]][lcx_edge[1]].get(diameter_attr)
+            ramus_diameter = graph[ramus_edge[0]][ramus_edge[1]].get(diameter_attr)
+        elif diameter_extraction_mode == 'local_range':
+            if local_diameter_range_mm is None:
+                raise ValueError("local_diameter_range_mm must be provided when diameter_extraction_mode='local_range'")
+
+            min_dist, max_dist = local_diameter_range_mm
+
+            # Extract diameters using local range from trifurcation node
+            parent_diameter = extract_local_diameter(
+                edge_data=graph[parent_edge[0]][parent_edge[1]],
+                bifurcation_node=trifurc_node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            lad_diameter = extract_local_diameter(
+                edge_data=graph[lad_edge[0]][lad_edge[1]],
+                bifurcation_node=trifurc_node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            lcx_diameter = extract_local_diameter(
+                edge_data=graph[lcx_edge[0]][lcx_edge[1]],
+                bifurcation_node=trifurc_node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            ramus_diameter = extract_local_diameter(
+                edge_data=graph[ramus_edge[0]][ramus_edge[1]],
+                bifurcation_node=trifurc_node,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+        else:
+            raise ValueError(f"Unknown diameter_extraction_mode: {diameter_extraction_mode}")
 
         result = {
             'LCA_TRIFURCATION': {
@@ -916,11 +1107,53 @@ def extract_trifurcation_statistics(graph, spacing_info, min_depth_mm=5.0, max_d
         angles_B1 = [m['angle_B1'] for m in depth_measurements]
         angles_B2 = [m['angle_B2'] for m in depth_measurements]
 
-        # Extract diameters
-        parent_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr)
-        lad_diameter = graph[lad_edge[0]][lad_edge[1]].get(diameter_attr)
-        lcx_diameter = graph[lcx_edge[0]][lcx_edge[1]].get(diameter_attr)
-        ramus_diameter = graph[ramus_edge[0]][ramus_edge[1]].get(diameter_attr)
+        # Extract diameters based on extraction mode
+        if diameter_extraction_mode == 'entire_segment':
+            parent_diameter = graph[parent_edge[0]][parent_edge[1]].get(diameter_attr)
+            lad_diameter = graph[lad_edge[0]][lad_edge[1]].get(diameter_attr)
+            lcx_diameter = graph[lcx_edge[0]][lcx_edge[1]].get(diameter_attr)
+            ramus_diameter = graph[ramus_edge[0]][ramus_edge[1]].get(diameter_attr)
+        elif diameter_extraction_mode == 'local_range':
+            min_dist, max_dist = local_diameter_range_mm
+
+            # For pseudo-trifurcation, use the midpoint as reference
+            parent_diameter = extract_local_diameter(
+                edge_data=graph[parent_edge[0]][parent_edge[1]],
+                bifurcation_node=midpoint_voxel,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            lad_diameter = extract_local_diameter(
+                edge_data=graph[lad_edge[0]][lad_edge[1]],
+                bifurcation_node=midpoint_voxel,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            lcx_diameter = extract_local_diameter(
+                edge_data=graph[lcx_edge[0]][lcx_edge[1]],
+                bifurcation_node=midpoint_voxel,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+
+            ramus_diameter = extract_local_diameter(
+                edge_data=graph[ramus_edge[0]][ramus_edge[1]],
+                bifurcation_node=midpoint_voxel,
+                min_dist_mm=min_dist,
+                max_dist_mm=max_dist,
+                spacing_info=spacing_info,
+                diameter_method=diameter_method
+            )
+        else:
+            raise ValueError(f"Unknown diameter_extraction_mode: {diameter_extraction_mode}")
 
         result = {
             'LCA_TRIFURCATION': {

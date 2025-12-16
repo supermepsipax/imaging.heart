@@ -20,7 +20,8 @@ import csv
 
 def analyze_artery_batch(input_folder=None, input_tar_file=None,
                          output_folder=None, config=None, config_path=None,
-                         diameter_method=None, verbose=None):
+                         diameter_method=None, diameter_extraction_mode=None,
+                         local_diameter_range_mm=None, verbose=None):
     """
     Perform statistical analysis on a batch of artery analysis pickle files.
 
@@ -38,6 +39,8 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         config (dict, optional): Configuration dictionary with analysis parameters
         config_path (str, optional): Path to config file (if config not provided directly)
         diameter_method (str, optional): 'slicing' or 'edt' - which diameter measurements to use
+        diameter_extraction_mode (str, optional): 'entire_segment' or 'local_range'
+        local_diameter_range_mm (list, optional): [min_mm, max_mm] for local diameter extraction
         verbose (bool, optional): Whether to print detailed statistics for each artery
 
     Returns:
@@ -62,6 +65,10 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         output_folder = config.get('output_folder')
     if diameter_method is None:
         diameter_method = config.get('diameter_method', 'slicing')
+    if diameter_extraction_mode is None:
+        diameter_extraction_mode = config.get('diameter_extraction_mode', 'entire_segment')
+    if local_diameter_range_mm is None:
+        local_diameter_range_mm = config.get('local_diameter_range_mm', [1.0, 5.0])
     if verbose is None:
         verbose = config.get('verbose', True)
 
@@ -86,6 +93,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
             print(f"Output folder: {output_folder}")
         print(f"\nConfiguration:")
         print(f"  Diameter method: {diameter_method}")
+        print(f"  Diameter extraction mode: {diameter_extraction_mode}")
+        if diameter_extraction_mode == 'local_range':
+            print(f"  Local diameter range: {local_diameter_range_mm[0]}-{local_diameter_range_mm[1]} mm")
         print(f"  Verbose output: {verbose}")
         print("=" * 80)
         print("\nStreaming from archive...")
@@ -126,6 +136,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
         print(f"Found {len(pkl_files)} analysis files to process")
         print(f"\nConfiguration:")
         print(f"  Diameter method: {diameter_method}")
+        print(f"  Diameter extraction mode: {diameter_extraction_mode}")
+        if diameter_extraction_mode == 'local_range':
+            print(f"  Local diameter range: {local_diameter_range_mm[0]}-{local_diameter_range_mm[1]} mm")
         print(f"  Verbose output: {verbose}")
         print("=" * 80)
 
@@ -348,7 +361,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 print(f"\n  [Bifurcation Statistics]")
             try:
                 bifurcations = extract_bifurcation_statistics(
-                    graph, spacing, diameter_method=diameter_method
+                    graph, spacing, diameter_method=diameter_method,
+                    diameter_extraction_mode=diameter_extraction_mode,
+                    local_diameter_range_mm=local_diameter_range_mm
                 )
 
                 if bifurcations:
@@ -409,7 +424,9 @@ def analyze_artery_batch(input_folder=None, input_tar_file=None,
                 if artery_type.upper() == 'LCA':
                     trifurcations = extract_trifurcation_statistics(
                         graph, spacing, min_depth_mm=2.0, max_depth_mm=7.0, step_mm=0.5,
-                        diameter_method=diameter_method
+                        diameter_method=diameter_method,
+                        diameter_extraction_mode=diameter_extraction_mode,
+                        local_diameter_range_mm=local_diameter_range_mm
                     )
 
                     if trifurcations:

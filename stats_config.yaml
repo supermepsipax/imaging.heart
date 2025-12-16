@@ -45,6 +45,29 @@ diameter_method: "slicing"
 #   - "edt": Euclidean distance transform-based measurements (faster)
 # Both methods are stored in the pickle files, this selects which to analyze
 
+diameter_extraction_mode: "local_range"
+# How to extract diameters at bifurcations/trifurcations
+# Options:
+#   - "entire_segment": Use mean diameter over the entire edge segment
+#   - "local_range": Use mean diameter within a specified distance range from bifurcation
+# When using "local_range", the local_diameter_range_mm parameter must be specified
+
+local_diameter_range_mm: [1.0, 5.0]
+# Distance range (in mm) for local diameter extraction at bifurcations/trifurcations
+# Format: [min_distance_mm, max_distance_mm]
+# Only used when diameter_extraction_mode = "local_range"
+#
+# How it works:
+#   - For parent edges: measures from the END of the segment (approaching bifurcation)
+#   - For child edges: measures from the START of the segment (leaving bifurcation)
+#   - Distance is calculated as cumulative path length along voxels (not Euclidean)
+#
+# Fallback behavior:
+#   - If segment length < min_distance: uses entire segment
+#   - If segment length > min_distance but < max_distance: uses from min_distance to end
+#
+# Example: [1.0, 5.0] extracts diameters from voxels between 1-5mm from the bifurcation
+
 
 # ==============================================================================
 # OUTPUT OPTIONS

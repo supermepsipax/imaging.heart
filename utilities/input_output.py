@@ -4,6 +4,7 @@ import yaml
 import pickle
 import tarfile
 import numpy as np
+import re
 from pathlib import Path
 
 def load_nrrd_mask(path, verbose=False):
@@ -16,6 +17,41 @@ def load_nrrd_mask(path, verbose=False):
             print(f'{heading}: {value}')
 
     return data, header
+
+def strip_filenames(paths, verbose=False):
+    """
+    Takes a list of nrrd filenames and strips them of the
+    extra trailing words, ideally will result in a final output
+    where filepaths look like Normal_1.nrrd or Diseased_2.nrrd
+    """
+    stripped_paths = []
+
+    pattern = re.compile(r"(Normal|Diseased)_\d+", re.IGNORECASE)
+
+    for path in paths:
+        path_obj = Path(path)
+        suffixes = path_obj.suffixes
+        suffix = "".join(suffixes) if suffixes else ""
+        base_name = path_obj.name[:-len(suffix)] if suffix else path_obj.name
+
+        match = pattern.search(base_name)
+        if match:
+            stripped_name = match.group(0)
+        else:
+            parts = base_name.split("_")
+            if len(parts) >= 2 and parts[1].isdigit():
+                stripped_name = f"{parts[0]}_{parts[1]}"
+            else:
+                stripped_name = base_name
+
+        new_name = f"{stripped_name}{suffix}"
+        new_path = path_obj.with_name(new_name)
+        stripped_paths.append(str(new_path))
+
+        if verbose:
+            print(f"{path_obj} -> {new_path}")
+
+    return stripped_paths 
 
 
 def load_config(config_path):

@@ -1,0 +1,57 @@
+# ==============================================================================
+# Node Clustering Sensitivity Analysis Pipeline - Configuration File
+# ==============================================================================
+# Compares graph node positions across multiple segmentation model outputs
+# to assess pipeline stability using DBSCAN clustering.
+# ==============================================================================
+
+# ==============================================================================
+# INPUT CONFIGURATION
+# ==============================================================================
+# Dictionary of model_label -> tar.gz archive path
+# Each archive contains processed artery pickle files for all patients
+model_archives:
+  GroundTruth: "results/model_validation/ground_truth/ground_truth_archive.tar.gz"
+  TotalSegmenter: "results/model_validation/tot_seg/tot_seg_archive.tar.gz"
+  nnUnet: "results/model_validation/nnunet/nnunet_archive.tar.gz"
+  SwinUNETR: "results/model_validation/swinunetr/swinunetr_archive.tar.gz"
+  SegMamba: "results/model_validation/segmamba/segmamba_archive.tar.gz"
+
+  # TotalSegmenter: "results/totalseg_test.tar.gz"
+  # nnUnet: "results/nnunet_test.tar.gz"
+  # Swin-NETR: "results/swinunetr_test.tar.gz"
+  # SegMamba: "results/segmamba_test.tar.gz"
+
+# Set to a key from model_archives to use as ground truth reference,
+# or null for symmetric (no ground truth) mode
+ground_truth_label: GroundTruth
+# ground_truth_label: null
+
+# ==============================================================================
+# OUTPUT CONFIGURATION
+# ==============================================================================
+# output_folder: "results/clustering"
+output_folder: "results/clustering/validation"
+
+# ==============================================================================
+# CLUSTERING PARAMETERS
+# ==============================================================================
+# DBSCAN epsilon: neighborhood radius in mm for clustering same-type nodes
+# Smaller values = stricter matching, larger = more lenient
+dbscan_eps_mm: 5.0
+
+# Maximum distance in mm to consider a node match valid
+# Clusters with max pairwise distance exceeding this are marked unmatched
+# Acts as a safety cap above the DBSCAN eps for multi-node clusters
+max_match_distance_mm: 8.0
+
+# ==============================================================================
+# VISUALIZATION CONFIGURATION
+# ==============================================================================
+# 3D interactive visualization (plotly, opens in browser)
+visualize_3d: true
+visualize_3d_percent: 10  # percentage of patient/artery combos to visualize
+
+# 2D report figures (matplotlib, saved to output_folder/figures/)
+save_2d_figures: true
+figure_format: "png"  # "png" or "pdf"

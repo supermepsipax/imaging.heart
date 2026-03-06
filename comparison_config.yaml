@@ -1,0 +1,45 @@
+# ==============================================================================
+# Comparison Analysis Pipeline - Configuration File
+# ==============================================================================
+# This file controls parameters for analyzing processed artery data
+# ==============================================================================
+
+# ==============================================================================
+# INPUT/OUTPUT CONFIGURATION
+# ==============================================================================
+# Specify dictionary of labelled folders to compare masks, can be any 
+
+# input_folder: "results/to_test"
+# Directory containing individual processed pickle files (*_analysis.pkl)
+# from the batch artery analysis pipeline. Each pickle file contains the
+# complete graph, diameter profiles, spacing info, and metadata for one artery.
+#
+# Use this option when analyzing individual files directly.
+# Comment out this line if using input_tar_file instead.
+mask_folders:
+  # original: "data/original" 
+  # TotalSegmenter: "data/total_segmenter"
+  # EE-Net: "data/een"
+  # TotalSegmenter: "data/ts_test"
+  # nnUnet: "data/nnunet_test"
+  # Swin-NETR: "data/swin_test"
+  # SegMamba: "data/segmamba_test"
+
+  GroundTruth: "data/model_validation/ground_truth"
+  # TotalSegmenter: "data/model_validation/tot_seg"
+  # nnUnet: "data/model_validation/nnunet"
+  # Swin-NETR: "data/model_validation/swinunetr"
+  SegMamba: "data/model_validation/segmamba"
+
+output_folder: "results/all"
+# Optional directory for saving statistical analysis results
+# Currently used for organizing output, can be used for future CSV exports
+# or aggregated statistics files
+
+# ==============================================================================
+# VISUALIZATION CONFIGURATION
+# ==============================================================================
+# visualize_overlap: If true, opens a 3D overlap view for a subset of comparisons
+# visualize_overlap_percent: Percentage of matched files to visualize per pair (0-100)
+visualize_overlap: false
+visualize_overlap_percent: 10

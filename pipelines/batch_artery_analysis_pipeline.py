@@ -193,7 +193,7 @@ def process_batch_arteries(input_folder=None, output_folder=None, config=None, c
             print(f"\n[Loading] Reading {nrrd_file.name}... ({file_size_mb:.1f} MB)")
             binary_mask, header = load_nrrd_mask(str(nrrd_file), verbose=False)
 
-            spacing_info = tuple(np.diag(header['space directions']))
+            spacing_info = tuple(np.abs(np.diag(header['space directions'])))
             print(f"          Original shape: {binary_mask.shape}")
             print(f"          Original spacing: {spacing_info}")
 

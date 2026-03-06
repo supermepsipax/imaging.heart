@@ -201,6 +201,128 @@ def visualize_binary_mask(binary_mask, title="3D Binary Mask", hide_background=F
     fig.show()
 
 
+def visualize_mask_overlap(
+    mask_1,
+    mask_2,
+    title="Mask Overlap",
+    label_1="Mask 1",
+    label_2="Mask 2",
+    hide_background=False,
+    dark_mode=False
+):
+    """
+    Visualizes overlap between two binary masks with color-coded regions.
+
+    Colors:
+        - Green: overlap (mask_1 & mask_2)
+        - Red: only mask_1
+        - Blue: only mask_2
+
+    Args:
+        mask_1: 3D numpy array for the first mask
+        mask_2: 3D numpy array for the second mask
+        title (str): Title for the visualization (default: "Mask Overlap")
+        hide_background (bool): If True, hides background, grid, and axes (default: False)
+        dark_mode (bool): If True, uses dark background with light grid/axes (default: False)
+    """
+    mask_1 = np.asarray(mask_1) != 0
+    mask_2 = np.asarray(mask_2) != 0
+
+    overlap = np.logical_and(mask_1, mask_2)
+    only_1 = np.logical_and(mask_1, np.logical_not(mask_2))
+    only_2 = np.logical_and(mask_2, np.logical_not(mask_1))
+
+    traces = []
+
+    def add_mesh(binary_mask, color, name, opacity=0.45):
+        if not np.any(binary_mask):
+            return
+        verts, faces, _, _ = measure.marching_cubes(binary_mask.astype(np.uint8), level=0.5)
+        traces.append(
+            go.Mesh3d(
+                x=verts[:, 0],
+                y=verts[:, 1],
+                z=verts[:, 2],
+                i=faces[:, 0],
+                j=faces[:, 1],
+                k=faces[:, 2],
+                opacity=opacity,
+                color=color,
+                name=name,
+                showlegend=True,
+                flatshading=True
+            )
+        )
+
+    add_mesh(overlap, 'green', 'Overlap')
+    add_mesh(only_1, 'red', f"{label_1} only")
+    add_mesh(only_2, 'blue', f"{label_2} only")
+
+    if not traces:
+        print("[INFO] No voxels to visualize for mask overlap.")
+        return
+
+    fig = go.Figure(data=traces)
+
+    if dark_mode and hide_background:
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=False, showbackground=False, visible=False),
+                yaxis=dict(showgrid=False, showbackground=False, visible=False),
+                zaxis=dict(showgrid=False, showbackground=False, visible=False),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif dark_mode:
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=True, gridcolor='#444444', showbackground=True, backgroundcolor='#1a1a1a', color='white'),
+                yaxis=dict(showgrid=True, gridcolor='#444444', showbackground=True, backgroundcolor='#1a1a1a', color='white'),
+                zaxis=dict(showgrid=True, gridcolor='#444444', showbackground=True, backgroundcolor='#1a1a1a', color='white'),
+                bgcolor='#1a1a1a',
+                aspectmode='data'
+            ),
+            paper_bgcolor='#1a1a1a',
+            plot_bgcolor='#1a1a1a',
+            title=title,
+            font=dict(color='white')
+        )
+    elif hide_background:
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=False, showbackground=False, visible=False),
+                yaxis=dict(showgrid=False, showbackground=False, visible=False),
+                zaxis=dict(showgrid=False, showbackground=False, visible=False),
+                bgcolor='rgba(0,0,0,0)',
+                aspectmode='data'
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            title=title
+        )
+    else:
+        fig.update_layout(
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=True),
+                yaxis=dict(showgrid=True),
+                zaxis=dict(showgrid=True),
+                aspectmode='data'
+            ),
+            title=title
+        )
+
+    fig.show()
+
+
 def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surface", hide_background=False, dark_mode=False):
     """
     Will create a 3D visualization that will open in a web browser to view a created networkx graph
@@ -518,5 +640,3 @@ def visualize_3d_graph(graph, binary_mask=None, title="3D Graph with Artery Surf
         )
 
     fig.show()
-
-

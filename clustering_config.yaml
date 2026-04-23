@@ -11,11 +11,12 @@
 # Dictionary of model_label -> tar.gz archive path
 # Each archive contains processed artery pickle files for all patients
 model_archives:
-  GroundTruth: "results/model_validation/ground_truth/ground_truth_archive.tar.gz"
-  TotalSegmenter: "results/model_validation/tot_seg/tot_seg_archive.tar.gz"
-  nnUnet: "results/model_validation/nnunet/nnunet_archive.tar.gz"
-  SwinUNETR: "results/model_validation/swinunetr/swinunetr_archive.tar.gz"
+  "Ground Truth": "results/model_validation/ground_truth/ground_truth_archive.tar.gz"
+  TotalSegmentator: "results/model_validation/tot_seg/tot_seg_archive.tar.gz"
+  nnU-Net: "results/model_validation/nnunet/nnunet_archive.tar.gz"
+  "Swin UNETR": "results/model_validation/swinunetr/swinunetr_archive.tar.gz"
   SegMamba: "results/model_validation/segmamba/segmamba_archive.tar.gz"
+  # Fused: "results/model_validation/fused/fused_archive.tar.gz"
 
   # TotalSegmenter: "results/totalseg_test.tar.gz"
   # nnUnet: "results/nnunet_test.tar.gz"
@@ -24,32 +25,53 @@ model_archives:
 
 # Set to a key from model_archives to use as ground truth reference,
 # or null for symmetric (no ground truth) mode
-ground_truth_label: GroundTruth
+ground_truth_label: "Ground Truth"
 # ground_truth_label: null
 
 # ==============================================================================
 # OUTPUT CONFIGURATION
 # ==============================================================================
 # output_folder: "results/clustering"
-output_folder: "results/clustering/validation"
+output_folder: "results/clustering/validation_w_per_category_limit"
 
 # ==============================================================================
 # CLUSTERING PARAMETERS
 # ==============================================================================
 # DBSCAN epsilon: neighborhood radius in mm for clustering same-type nodes
 # Smaller values = stricter matching, larger = more lenient
-dbscan_eps_mm: 5.0
+dbscan_eps_mm: 3.0
 
 # Maximum distance in mm to consider a node match valid
 # Clusters with max pairwise distance exceeding this are marked unmatched
 # Acts as a safety cap above the DBSCAN eps for multi-node clusters
-max_match_distance_mm: 8.0
+max_match_distance_mm: 3.0
+
+# Maximum distance in mm to consider an origin node a "hit" against ground truth
+# If a model's origin is within this distance of the GT origin, it counts as a match
+origin_match_distance_mm: 5.0
+
+# ==============================================================================
+# PER-CATEGORY DISTANCE THRESHOLDS (optional)
+# ==============================================================================
+# Override dbscan_eps_mm and max_match_distance_mm per node category.
+# Any category not listed here falls back to the global values above.
+# origin uses origin_match_distance_mm as its match threshold (no DBSCAN).
+#
+per_category_thresholds:
+  origin:
+    match_distance_mm: 7.0      # overrides origin_match_distance_mm
+  bifurcation:
+    dbscan_eps_mm: 2.5           # overrides global dbscan_eps_mm
+    max_match_distance_mm: 2.5   # overrides global max_match_distance_mm
+  endpoint:
+    dbscan_eps_mm: 5.0
+    max_match_distance_mm: 5.0
 
 # ==============================================================================
 # VISUALIZATION CONFIGURATION
 # ==============================================================================
 # 3D interactive visualization (plotly, opens in browser)
-visualize_3d: true
+visualize_3d: false
 visualize_3d_percent: 10  # percentage of patient/artery combos to visualize
 
 # 2D report figures (matplotlib, saved to output_folder/figures/)

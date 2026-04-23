@@ -20,6 +20,8 @@ import csv
 def cluster_artery_nodes(model_archives=None, ground_truth_label=None,
                          output_folder=None, config=None, config_path=None,
                          dbscan_eps_mm=None, max_match_distance_mm=None,
+                         origin_match_distance_mm=None,
+                         per_category_thresholds=None,
                          visualize_3d=None, visualize_3d_percent=None,
                          save_2d_figures=None, figure_format=None):
     """
@@ -60,6 +62,8 @@ def cluster_artery_nodes(model_archives=None, ground_truth_label=None,
         dbscan_eps_mm = config.get('dbscan_eps_mm', 5.0)
     if max_match_distance_mm is None:
         max_match_distance_mm = config.get('max_match_distance_mm', 8.0)
+    if origin_match_distance_mm is None:
+        origin_match_distance_mm = config.get('origin_match_distance_mm', 5.0)
     if visualize_3d is None:
         visualize_3d = config.get('visualize_3d', False)
     if visualize_3d_percent is None:
@@ -68,6 +72,22 @@ def cluster_artery_nodes(model_archives=None, ground_truth_label=None,
         save_2d_figures = config.get('save_2d_figures', True)
     if figure_format is None:
         figure_format = config.get('figure_format', 'png')
+    if per_category_thresholds is None:
+        per_category_thresholds = config.get('per_category_thresholds', {})
+
+    # Resolve per-category thresholds, falling back to global values
+    category_thresholds = {}
+    for cat in ['origin', 'bifurcation', 'endpoint']:
+        cat_cfg = (per_category_thresholds or {}).get(cat, {})
+        if cat == 'origin':
+            category_thresholds[cat] = {
+                'match_distance_mm': cat_cfg.get('match_distance_mm', origin_match_distance_mm),
+            }
+        else:
+            category_thresholds[cat] = {
+                'dbscan_eps_mm': cat_cfg.get('dbscan_eps_mm', dbscan_eps_mm),
+                'max_match_distance_mm': cat_cfg.get('max_match_distance_mm', max_match_distance_mm),
+            }
 
     if model_archives is None:
         raise ValueError("model_archives must be provided either as a parameter or in the config file")
@@ -84,8 +104,14 @@ def cluster_artery_nodes(model_archives=None, ground_truth_label=None,
     print(f"Models: {list(model_archives.keys())}")
     print(f"Ground truth: {ground_truth_label or 'None (symmetric mode)'}")
     print(f"Output folder: {output_folder}")
-    print(f"DBSCAN eps: {dbscan_eps_mm} mm")
-    print(f"Max match distance: {max_match_distance_mm} mm")
+    print(f"DBSCAN eps (global default): {dbscan_eps_mm} mm")
+    print(f"Max match distance (global default): {max_match_distance_mm} mm")
+    print(f"Thresholds per category:")
+    print(f"  Origin:       match_distance = {category_thresholds['origin']['match_distance_mm']} mm")
+    print(f"  Bifurcation:  eps = {category_thresholds['bifurcation']['dbscan_eps_mm']} mm, "
+          f"max_match = {category_thresholds['bifurcation']['max_match_distance_mm']} mm")
+    print(f"  Endpoint:     eps = {category_thresholds['endpoint']['dbscan_eps_mm']} mm, "
+          f"max_match = {category_thresholds['endpoint']['max_match_distance_mm']} mm")
     print("=" * 80)
 
     # =========================================================================
@@ -109,7 +135,7 @@ def cluster_artery_nodes(model_archives=None, ground_truth_label=None,
         print(f"\n--- {patient_id} / {artery_type} ({len(model_data)} models) ---")
 
         result = _analyze_single_combination(
-            model_data, dbscan_eps_mm, max_match_distance_mm, ground_truth_label
+            model_data, ground_truth_label, category_thresholds
         )
         per_patient_results[(patient_id, artery_type)] = result
 
@@ -264,8 +290,7 @@ def _load_and_group_archives(model_archives):
     return filtered
 
 
-def _analyze_single_combination(model_data, dbscan_eps_mm, max_match_distance_mm,
-                                ground_truth_label):
+def _analyze_single_combination(model_data, ground_truth_label, category_thresholds):
     """
     Run node clustering analysis for a single (patient_id, artery_type) combination.
 
@@ -282,12 +307,14 @@ def _analyze_single_combination(model_data, dbscan_eps_mm, max_match_distance_mm
     origin_result = compute_origin_spread(origin_coords)
 
     # Bifurcation clustering
+    bif_thresh = category_thresholds['bifurcation']
     bif_sets = {m: nodes['bifurcation'] for m, nodes in node_sets_by_model.items()}
-    bif_clustering = cluster_nodes(bif_sets, dbscan_eps_mm, max_match_distance_mm)
+    bif_clustering = cluster_nodes(bif_sets, bif_thresh['dbscan_eps_mm'], bif_thresh['max_match_distance_mm'])
 
     # Endpoint clustering
+    ep_thresh = category_thresholds['endpoint']
     ep_sets = {m: nodes['endpoint'] for m, nodes in node_sets_by_model.items()}
-    ep_clustering = cluster_nodes(ep_sets, dbscan_eps_mm, max_match_distance_mm)
+    ep_clustering = cluster_nodes(ep_sets, ep_thresh['dbscan_eps_mm'], ep_thresh['max_match_distance_mm'])
 
     # Pairwise model distances (for heatmaps)
     pairwise = {
@@ -312,15 +339,34 @@ def _analyze_single_combination(model_data, dbscan_eps_mm, max_match_distance_mm
         for node_type in ['bifurcation', 'endpoint']:
             sets = {m: nodes[node_type] for m, nodes in node_sets_by_model.items()}
             gt_results[node_type] = compute_ground_truth_distances(
-                sets, ground_truth_label, max_match_distance_mm
+                sets, ground_truth_label, category_thresholds[node_type]['max_match_distance_mm']
             )
 
-        # Origin GT distance
-        gt_origin = origin_result['per_model_distance']
-        gt_results['origin'] = {
-            m: {'distance_to_gt': gt_origin.get(m, 0.0)}
-            for m in model_data if m != ground_truth_label
-        }
+        # Origin GT: compute direct distance to GT origin and hit/miss
+        origin_match_distance_mm = category_thresholds['origin']['match_distance_mm']
+        gt_origin_coord = node_sets_by_model[ground_truth_label]['origin']
+        if len(gt_origin_coord) > 0:
+            gt_origin_pt = gt_origin_coord[0]
+            gt_results['origin'] = {}
+            for m in model_data:
+                if m == ground_truth_label:
+                    continue
+                m_origin = node_sets_by_model[m]['origin']
+                if len(m_origin) > 0:
+                    dist = float(np.linalg.norm(m_origin[0] - gt_origin_pt))
+                    hit = dist <= origin_match_distance_mm
+                else:
+                    dist = float('inf')
+                    hit = False
+                gt_results['origin'][m] = {
+                    'distance_to_gt': dist,
+                    'hit': hit,
+                }
+        else:
+            gt_results['origin'] = {
+                m: {'distance_to_gt': 0.0, 'hit': False}
+                for m in model_data if m != ground_truth_label
+            }
 
         result['ground_truth'] = gt_results
 
@@ -461,22 +507,25 @@ def _aggregate_results(per_patient_results, model_labels):
                     'model_dice': model_dice,
                 }
 
-            # Origin GT scores: 1 / (1 + distance) per model, averaged across patients
-            origin_gt_scores = defaultdict(list)
+            # Origin GT: hit/miss percentage per model across patients
+            origin_gt_hits = defaultdict(list)
+            origin_gt_distances = defaultdict(list)
             for r in relevant.values():
                 gt_origin = r.get('ground_truth', {}).get('origin', {})
                 for m, m_data in gt_origin.items():
                     if m.startswith('_'):
                         continue
-                    dist = m_data.get('distance_to_gt', 0.0)
-                    origin_gt_scores[m].append(2.0 / (1.0 + np.exp(dist / 2.0)))
+                    origin_gt_hits[m].append(1.0 if m_data.get('hit', False) else 0.0)
+                    origin_gt_distances[m].append(m_data.get('distance_to_gt', 0.0))
 
             gt_aggregate['origin'] = {
                 m: {
-                    'mean_score': float(np.mean(scores)),
-                    'std_score': float(np.std(scores)),
+                    'hit_rate': float(np.mean(hits)),
+                    'num_hits': int(np.sum(hits)),
+                    'num_total': len(hits),
+                    'mean_distance_mm': float(np.mean(origin_gt_distances[m])),
                 }
-                for m, scores in origin_gt_scores.items()
+                for m, hits in origin_gt_hits.items()
             }
 
         aggregate[artery_type] = {
@@ -605,8 +654,8 @@ def _save_ground_truth_csv(per_patient_results, output_folder, ground_truth_labe
                         'mean_distance_mm': model_gt['distance_to_gt'],
                         'median_distance_mm': model_gt['distance_to_gt'],
                         'max_distance_mm': model_gt['distance_to_gt'],
-                        'num_matched': 1,
-                        'num_unmatched': 0,
+                        'num_matched': 1 if model_gt.get('hit', False) else 0,
+                        'num_unmatched': 0 if model_gt.get('hit', False) else 1,
                         'dice': '',
                     }
                 else:
@@ -701,12 +750,16 @@ def _print_summary(aggregate):
             gt_models = sorted(gt_models)
 
             for model in gt_models:
-                origin_score = gt_agg.get('origin', {}).get(model, {}).get('mean_score', 0.0)
+                origin_data = gt_agg.get('origin', {}).get(model, {})
+                hit_rate = origin_data.get('hit_rate', 0.0)
+                num_hits = origin_data.get('num_hits', 0)
+                num_total = origin_data.get('num_total', 0)
+                mean_dist = origin_data.get('mean_distance_mm', 0.0)
                 bif_dice = gt_agg.get('bifurcation', {}).get('model_dice', {}).get(model, 0.0)
                 ep_dice = gt_agg.get('endpoint', {}).get('model_dice', {}).get(model, 0.0)
 
                 print(f"    {model}:")
-                print(f"      Origin score:      {origin_score:.3f}")
+                print(f"      Origin hit rate:   {hit_rate:.1%} ({num_hits}/{num_total}, mean dist: {mean_dist:.2f} mm)")
                 print(f"      Bifurcation Dice:  {bif_dice:.3f}")
                 print(f"      Endpoint Dice:     {ep_dice:.3f}")
 

@@ -26,10 +26,26 @@ mask_folders:
   # SegMamba: "data/segmamba_test"
 
   GroundTruth: "data/model_validation/ground_truth"
+  Disconnected: "data/model_validation/disconnected"
+  Reconnected: "data/model_validation/reconnected"
+
   # TotalSegmenter: "data/model_validation/tot_seg"
   # nnUnet: "data/model_validation/nnunet"
+  # "nnUnet w/ clDice alpha = 0.50": "data/model_validation/nnunet_cldice_50"
+  # "nnUnet w/ clDice alpha = 0.20": "data/model_validation/nnunet_cldice_20"
+  # "nnUnet w/ clDice and CE alpha = 0.33": "data/model_validation/nnunet_cldice_1105"
   # Swin-NETR: "data/model_validation/swinunetr"
-  SegMamba: "data/model_validation/segmamba"
+  # SegMamba: "data/model_validation/segmamba"
+  # "SegMamba w/ clDice alpha = 0.50": "data/model_validation/segmamba_cldice_50"
+  # "SegMamba w/ clDice alpha = 0.20": "data/model_validation/segmamba_cldice_20"
+  # "Basic Ensembling": "data/model_validation/basic_ensemble_50"
+
+# ==============================================================================
+# REFERENCE LABEL (optional)
+# ==============================================================================
+# If set, only compare this folder against all others instead of every combination.
+# Comment out or remove to compare all pairs.
+reference_label: "GroundTruth"
 
 output_folder: "results/all"
 # Optional directory for saving statistical analysis results

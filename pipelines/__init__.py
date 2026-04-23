@@ -10,6 +10,8 @@ from .batch_artery_analysis_pipeline import process_batch_arteries
 from .statistical_analysis_pipeline import analyze_artery_batch
 from .mask_comparison_pipeline import compare_mask_batch
 from .node_clustering_pipeline import cluster_artery_nodes
+from .traversal_comparison_pipeline import traversal_comparison
+from .mask_reconnection_pipeline import reconnect_mask, reconnect_mask_batch
 
 __all__ = [
     "process_single_artery",
@@ -17,4 +19,7 @@ __all__ = [
     "analyze_artery_batch",
     "compare_mask_batch",
     "cluster_artery_nodes",
+    "traversal_comparison",
+    "reconnect_mask",
+    "reconnect_mask_batch",
 ]

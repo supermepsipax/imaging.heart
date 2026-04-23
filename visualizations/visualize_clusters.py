@@ -563,12 +563,12 @@ def plot_ground_truth_comparison(aggregate, ground_truth_label,
         if not models:
             continue
 
-        col_labels = ['Origin\nScore', 'Bifurcation\nDice', 'Endpoint\nDice']
+        col_labels = ['Origin\nHit Rate', 'Bifurcation\nDice', 'Endpoint\nDice']
         matrix = np.zeros((len(models), len(col_labels)))
 
         for i, m in enumerate(models):
             origin_data = gt_agg.get('origin', {}).get(m, {})
-            matrix[i, 0] = origin_data.get('mean_score', 0.0)
+            matrix[i, 0] = origin_data.get('hit_rate', 0.0)
             matrix[i, 1] = gt_agg.get('bifurcation', {}).get('model_dice', {}).get(m, 0.0)
             matrix[i, 2] = gt_agg.get('endpoint', {}).get('model_dice', {}).get(m, 0.0)
 

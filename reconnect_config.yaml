@@ -1,0 +1,38 @@
+# ==============================================================================
+# IMG-Heart Mask Reconnection Pipeline - Configuration File
+# ==============================================================================
+# Attempts to bridge small gaps between disconnected bodies in segmentation
+# masks by comparing skeleton endpoint directions and distances.
+# ==============================================================================
+
+# ==============================================================================
+# INPUT/OUTPUT
+# ==============================================================================
+
+# mask_folder: "data/disconnected"      # Folder containing input .nrrd masks
+# output_folder: "data/reconnected"     # Folder to save reconnected .nrrd masks
+mask_folder: "data/model_validation/disconnected"
+output_folder: "data/model_validation/reconnected"
+
+
+# ==============================================================================
+# RECONNECTION PARAMETERS
+# ==============================================================================
+
+# If true, opens an interactive 3D overlap visualization (original vs reconnected)
+# for each mask where at least one reconnection was made.
+visualize: true
+
+# Maximum Euclidean distance (in voxels) between two endpoints for a
+# reconnection attempt. Keep small (3-5) to avoid spurious connections.
+distance_threshold: 15
+
+# Number of skeleton voxels to walk back from each endpoint when estimating
+# its outward direction. Larger values give a smoother direction estimate
+# but may overshoot past local bends in the vessel.
+direction_lookback: 5
+
+# Minimum cosine similarity (dot product) required for both endpoint direction
+# vectors to be considered aligned. 1.0 = perfectly collinear, 0.0 = orthogonal.
+# 0.7 ≈ within 45°, 0.85 ≈ within 32°.
+alignment_threshold: 0.7

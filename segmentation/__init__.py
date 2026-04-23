@@ -6,8 +6,9 @@ This package provides analysis functions for:
 - Branch statistics extraction and analysis
 """
 
-from .comparison import compare_masks
+from .comparison import compare_masks, cl_dice_score
 
 __all__ = [
     'compare_masks',
+    'cl_dice_score',
 ]

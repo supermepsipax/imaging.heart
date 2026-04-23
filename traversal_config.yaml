@@ -1,0 +1,53 @@
+# ==============================================================================
+# Graph Traversal Comparison Pipeline - Configuration File
+# ==============================================================================
+# Compares artery graphs to ground truth by simultaneous BFS traversal,
+# matching branching topology and reporting branch-level metrics.
+# ==============================================================================
+
+# ==============================================================================
+# INPUT CONFIGURATION
+# ==============================================================================
+model_archives:
+  GroundTruth: "results/model_validation/ground_truth/ground_truth_archive.tar.gz"
+  TotalSegmenter: "results/model_validation/tot_seg/tot_seg_archive.tar.gz"
+  nnUnet: "results/model_validation/nnunet/nnunet_archive.tar.gz"
+  SwinUNETR: "results/model_validation/swinunetr/swinunetr_archive.tar.gz"
+  SegMamba: "results/model_validation/segmamba/segmamba_archive.tar.gz"
+
+ground_truth_label: GroundTruth
+
+# ==============================================================================
+# OUTPUT CONFIGURATION
+# ==============================================================================
+output_folder: "results/traversal_comparison"
+
+# ==============================================================================
+# MATCHING PARAMETERS
+# ==============================================================================
+# Maximum distance in mm to match a downstream junction node to its
+# corresponding node in the other graph. This should be generous enough to
+# account for segmentation-induced positional shifts at bifurcations, but
+# tight enough to avoid false matches between unrelated junctions.
+branch_match_distance_mm: 5.0
+
+# ==============================================================================
+# ORIGIN VALIDATION
+# ==============================================================================
+# Cases with invalid origins are excluded from aggregate metrics to avoid
+# skewing bifurcation statistics with cascading mismatches.
+
+# Maximum distance in mm between GT and model origin to consider the case valid.
+# Applies to both LCA and RCA.
+origin_max_distance_mm: 10.0
+
+# LCA-specific fallback: if the origin is beyond origin_max_distance_mm but the
+# first bifurcation (LM split) matches within this distance, the case is still
+# valid. This accounts for LCA having a stable first bifurcation point.
+# Does NOT apply to RCA (no guaranteed first bifurcation).
+lca_first_bif_max_distance_mm: 5.0
+
+# ==============================================================================
+# VISUALIZATION
+# ==============================================================================
+figure_format: "png"  # "png" or "pdf"

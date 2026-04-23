@@ -3,7 +3,7 @@ import itertools
 import random
 import numpy as np
 from pathlib import Path
-from segmentation import compare_masks
+from segmentation import compare_masks, cl_dice_score
 from utilities import ensure_continuous_body, load_config, load_nrrd_mask, sort_labelled_bodies_by_size
 from utilities.input_output import strip_filenames
 from visualizations import visualize_3d_graph, visualize_mask_overlap
@@ -70,9 +70,17 @@ def compare_mask_batch(mask_folders = None, output_folder = None, config=None, c
         mask_folders[label] = file_map
     output_path = Path(output_folder)
 
+    reference_label = config.get('reference_label')
+
     comparison_matrix = {}
     labels = list(mask_folders.keys())
-    for label_a, label_b in itertools.combinations(labels, 2):
+    if reference_label:
+        if reference_label not in mask_folders:
+            raise ValueError(f"reference_label '{reference_label}' not found in mask_folders")
+        pairs = [(reference_label, label) for label in labels if label != reference_label]
+    else:
+        pairs = list(itertools.combinations(labels, 2))
+    for label_a, label_b in pairs:
         files_a = mask_folders[label_a]
         files_b = mask_folders[label_b]
 
@@ -86,6 +94,7 @@ def compare_mask_batch(mask_folders = None, output_folder = None, config=None, c
                 sample_count = max(1, min(len(common_keys), sample_count))
                 visualize_keys = set(random.sample(list(common_keys), sample_count))
         dice_score_array = []
+        cl_dice_score_array = []
         for key in common_keys:
             mask_1, _ = load_nrrd_mask(files_a[key])
             is_continous, labelled_bodies = ensure_continuous_body(mask_1)
@@ -104,18 +113,23 @@ def compare_mask_batch(mask_folders = None, output_folder = None, config=None, c
                 mask_2 = sorted_bodies[0].astype(np.uint8)
 
             dice_score_array.append(compare_masks(mask_1, mask_2))
+            cl_dice_score_array.append(cl_dice_score(mask_1, mask_2))
 
             if visualize_overlap and key in visualize_keys:
                 title = f"Overlap: {label_a} vs {label_b} ({key})"
                 visualize_mask_overlap(mask_1, mask_2, title=title, label_1=label_a, label_2=label_b)
 
+        pair_key = f"{label_a}<->{label_b}"
         if dice_score_array:
-            mean_dice = float(np.mean(dice_score_array))
+            comparison_matrix[pair_key] = {
+                'dice': float(np.mean(dice_score_array)),
+                'cl_dice': float(np.mean(cl_dice_score_array)),
+            }
         else:
-            mean_dice = np.nan
-        comparison_matrix[f"{label_a}<->{label_b}"] = mean_dice
-    print(comparison_matrix)
+            comparison_matrix[pair_key] = {
+                'dice': np.nan,
+                'cl_dice': np.nan,
+            }
+    for pair, scores in comparison_matrix.items():
+        print(f"{pair}:  Dice={scores['dice']:.4f}  clDice={scores['cl_dice']:.4f}")
 
-
-
-    

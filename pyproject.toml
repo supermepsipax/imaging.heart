@@ -17,4 +17,5 @@ dependencies = [
     "scikit-image>=0.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
+    "simpleitk>=2.5.3",
 ]

@@ -11,8 +11,12 @@ def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
     """
     Walk `lookback` steps back from an endpoint into the skeleton.
 
-    Returns a unit vector pointing outward from the body (from the interior
-    toward the endpoint tip, i.e. toward the gap).
+    Returns (direction, path):
+        direction: unit vector pointing outward from the body (from the interior
+                   toward the endpoint tip, i.e. toward the gap), or None if the
+                   walked path is too short to define one.
+        path: ordered list of skeleton voxels starting at the endpoint and
+              moving inward.
     """
     path = [endpoint]
     current = endpoint
@@ -27,13 +31,13 @@ def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
         path.append(current)
 
     if len(path) < 2:
-        return None
+        return None, path
 
     direction = np.array(path[0]) - np.array(path[-1])
     norm = np.linalg.norm(direction)
     if norm < 1e-6:
-        return None
-    return direction / norm
+        return None, path
+    return direction / norm, path
 
 
 def _fill_bridge(reconnected_mask, ep1, ep2, radius1, radius2):
@@ -130,8 +134,8 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
                     if dist > distance_threshold:
                         continue
 
-                    dir_i = _get_endpoint_direction(ep_i, graph_i, direction_lookback)
-                    dir_j = _get_endpoint_direction(ep_j, graph_j, direction_lookback)
+                    dir_i, path_i = _get_endpoint_direction(ep_i, graph_i, direction_lookback)
+                    dir_j, path_j = _get_endpoint_direction(ep_j, graph_j, direction_lookback)
 
                     if dir_i is None or dir_j is None:
                         continue
@@ -147,8 +151,11 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
                     dot_j = np.dot(dir_j, -delta_unit)
 
                     if dot_i >= alignment_threshold and dot_j >= alignment_threshold:
-                        radius_i = float(distance_array[ep_i])
-                        radius_j = float(distance_array[ep_j])
+                        # Sample EDT over interior skeleton voxels — the endpoint
+                        # itself sits at the cut face where EDT collapses to ~1
+                        # regardless of true vessel radius.
+                        radius_i = float(np.median([distance_array[v] for v in path_i[1:]]))
+                        radius_j = float(np.median([distance_array[v] for v in path_j[1:]]))
                         _fill_bridge(reconnected_mask, ep_i, ep_j, radius_i, radius_j)
                         connections_made += 1
                         print(f"      --> Bridged body {i} {ep_i} <-> body {j} {ep_j} "

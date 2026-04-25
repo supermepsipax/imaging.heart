@@ -11,8 +11,8 @@
 
 # mask_folder: "data/disconnected"      # Folder containing input .nrrd masks
 # output_folder: "data/reconnected"     # Folder to save reconnected .nrrd masks
-mask_folder: "data/model_validation/disconnected"
-output_folder: "data/model_validation/reconnected"
+mask_folder: "data/model_ensembling/cldice_models_alpha_50/ensembled/staple/"
+output_folder: "data/reconnection/cldice_alpha_50_staple_ensemble"
 
 
 # ==============================================================================
@@ -35,4 +35,4 @@ direction_lookback: 5
 # Minimum cosine similarity (dot product) required for both endpoint direction
 # vectors to be considered aligned. 1.0 = perfectly collinear, 0.0 = orthogonal.
 # 0.7 ≈ within 45°, 0.85 ≈ within 32°.
-alignment_threshold: 0.7
+alignment_threshold: 0.5

@@ -39,10 +39,9 @@ def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
         return None, path
     return direction / norm, path
 
-
-def _fill_bridge(reconnected_mask, ep1, ep2, radius1, radius2):
+def _fill_bridge(reconnected_mask, startpoint, endpoint, radius1, radius2, dir1, dir2):
     """
-    Draw a bridge between two skeleton endpoints, expanding each centerline
+    Draw a bridge between two skeleton endpoints using a cubiz Bezier curve, expanding each centerline
     voxel into a sphere whose radius is linearly interpolated between radius1
     and radius2.
 
@@ -50,11 +49,25 @@ def _fill_bridge(reconnected_mask, ep1, ep2, radius1, radius2):
     width at each endpoint rather than leaving a 1-voxel-wide seam.
     """
     shape = reconnected_mask.shape
-    n_steps = max(int(np.ceil(np.linalg.norm(np.array(ep2) - np.array(ep1)))) + 1, 2)
-    coords = np.linspace(ep1, ep2, n_steps)
+
+    # Convert p0 and p3 (start- and endpoints, tuples) into arrays
+    p0 = np.array(startpoint, dtype = float)
+    p3 = np.array(endpoint, dtype = float)
+
+    dist = np.linalg.norm(p3 - p0)
+    n_steps = max(int(np.ceil(dist)) + 1, 2)
+    t = np.linspace(0, 1, n_steps)
+
+    # p1 (control point) corresponds to t = 1/3
+    # p2 (control point) corresponds to t = 2/3
+    p1 = p0 + dir1 * (dist / 3)
+    p2 = p3 + dir2 * (dist / 3)
+
+    # B(t) = (1-t)^3 * p0 + 3(1-t)^2 * t * p1 + 3(1-t) * t^2 * p2 + t^3 * p3
+    coords = np.outer((1 - t)**3, p0) + np.outer(3 * (1 - t)**2 * t, p1) + np.outer(3 * (1 - t) * t**2, p2) + np.outer(t**3, p3)
 
     for idx, c in enumerate(coords):
-        t = idx / (n_steps - 1)
+        t = idx / (len(coords) - 1)
         radius = (1 - t) * radius1 + t * radius2
         center = np.clip(np.round(c).astype(int), 0, np.array(shape) - 1)
 
@@ -69,7 +82,6 @@ def _fill_bridge(reconnected_mask, ep1, ep2, radius1, radius2):
                             int(np.clip(center[2] + d2, 0, shape[2] - 1)),
                         )
                         reconnected_mask[v] = 1
-
 
 def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, alignment_threshold=0.7):
     """
@@ -154,9 +166,16 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
                         # Sample EDT over interior skeleton voxels — the endpoint
                         # itself sits at the cut face where EDT collapses to ~1
                         # regardless of true vessel radius.
-                        radius_i = float(np.median([distance_array[v] for v in path_i[1:]]))
-                        radius_j = float(np.median([distance_array[v] for v in path_j[1:]]))
-                        _fill_bridge(reconnected_mask, ep_i, ep_j, radius_i, radius_j)
+
+                        start_idx_i = min(len(path_i) - 1, direction_lookback // 2)
+                        start_voxel_i = path_i[start_idx_i]
+                        radius_i = float(distance_array[start_voxel_i])
+
+                        start_idx_j = min(len(path_j) - 1, direction_lookback // 2)
+                        start_voxel_j = path_j[start_idx_j]
+                        radius_j = float(distance_array[start_voxel_j])
+
+                        _fill_bridge(reconnected_mask, start_voxel_i, start_voxel_j, radius_i, radius_j, dir_i, dir_j)
                         connections_made += 1
                         print(f"      --> Bridged body {i} {ep_i} <-> body {j} {ep_j} "
                               f"(dist={dist:.1f}, r={radius_i:.1f}->{radius_j:.1f}, "

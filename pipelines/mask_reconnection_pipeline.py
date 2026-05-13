@@ -41,7 +41,7 @@ def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
 
 def _fill_bridge(reconnected_mask, startpoint, endpoint, radius1, radius2, dir1, dir2):
     """
-    Draw a bridge between two skeleton endpoints using a cubiz Bezier curve, expanding each centerline
+    Draw a bridge between two skeleton endpoints using a cubic Bezier curve, expanding each centerline
     voxel into a sphere whose radius is linearly interpolated between radius1
     and radius2.
 

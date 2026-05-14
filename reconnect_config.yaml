@@ -11,16 +11,26 @@
 
 # mask_folder: "data/disconnected"      # Folder containing input .nrrd masks
 # output_folder: "data/reconnected"     # Folder to save reconnected .nrrd masks
-mask_folder: "data/model_ensembling/cldice_models_alpha_50/ensembled/staple/"
-output_folder: "data/reconnection/cldice_alpha_50_staple_ensemble"
+# mask_folder: "data/model_ensembling/cldice_models_alpha_50/ensembled/cldice/"
+# output_folder: "data/reconnection/cldice_alpha_50_staple_ensemble"
 
+# mask_folder: "data/model_ensembling/PCC2_original_models/ensembled/simple_50/"
+# output_folder: "data/reconnection/PCC2_original_models_simple_50_ensemble"
+
+mask_folder: "/home/maia-user/shared/data/Large_Data/TotSeg"
+output_folder: "/home/maia-user/shared/data/Large_Data/TotSegReconnected"
 
 # ==============================================================================
 # RECONNECTION PARAMETERS
 # ==============================================================================
 
+# Number of parallel workers for batch processing. -1 uses all CPU cores,
+# 1 runs sequentially with visualization support.
+# Visualization is disabled in parallel mode.
+n_jobs: -1
+
 # If true, opens an interactive 3D overlap visualization (original vs reconnected)
-# for each mask where at least one reconnection was made.
+# for each mask where at least one reconnection was made (sequential mode only).
 visualize: true
 
 # Maximum Euclidean distance (in voxels) between two endpoints for a
@@ -30,7 +40,7 @@ distance_threshold: 15
 # Number of skeleton voxels to walk back from each endpoint when estimating
 # its outward direction. Larger values give a smoother direction estimate
 # but may overshoot past local bends in the vessel.
-direction_lookback: 5
+direction_lookback: 7
 
 # Minimum cosine similarity (dot product) required for both endpoint direction
 # vectors to be considered aligned. 1.0 = perfectly collinear, 0.0 = orthogonal.

@@ -37,12 +37,18 @@ mask_folders:
   # SegMamba: "data/model_validation/segmamba"
 
   #INFO: clDice Models w/ alpha = 50
-  GroundTruth: "data/model_validation/ground_truth"
-  TotalSegmenter: "data/model_validation/tot_seg"
-  "nnUnet w/ clDice alpha = 0.50": "data/model_validation/nnunet_cldice_50"
-  "SegMamba w/ clDice alpha = 0.50": "data/model_validation/segmamba_cldice_50"
-  "SegMamba w/ clDice alpha = 0.50 (fixed)": "data/model_validation/segmamba_cldice_50_fixed"
-  "Swin-NETR w/ clDice alpha = 0.50": "data/model_validation/swinunetr_cldice_50"
+  # GroundTruth: "data/model_validation/ground_truth"
+  # TotalSegmenter: "data/model_validation/tot_seg"
+  # "nnUnet w/ clDice alpha = 0.50": "data/model_validation/nnunet_cldice_50"
+  # "SegMamba w/ clDice alpha = 0.50": "data/model_validation/segmamba_cldice_50"
+  # "SegMamba w/ clDice alpha = 0.50 (fixed)": "data/model_validation/segmamba_cldice_50_fixed"
+  # "Swin-NETR w/ clDice alpha = 0.50": "data/model_validation/swinunetr_cldice_50"
+
+  #INFO: clDice Models w/ alpha = 20
+  # GroundTruth: "data/model_validation/ground_truth"
+  # "nnUnet w/ clDice alpha = 0.50": "data/model_validation/nnunet_cldice_20"
+  # "SegMamba w/ clDice alpha = 0.50": "data/model_validation/segmamba_cldice_20"
+  # "Swin-NETR w/ clDice alpha = 0.50": "data/model_validation/swinunetr_cldice_20"
 
   #INFO: Ensembling on Original Models
   # GroundTruth: "data/model_validation/ground_truth"
@@ -53,6 +59,16 @@ mask_folders:
   # "STAPLE": "data/model_ensembling/PCC2_original_models/ensembled/staple"
   # "clDice": "data/model_ensembling/PCC2_original_models/ensembled/cldice"
 
+  #INFO: Ensembling on Original Models with reconnected outputs
+  # GroundTruth: "data/model_validation/ground_truth"
+  # "Simple 0.25": "data/model_ensembling/PCC2_reconnected/ensembled/simple_25"
+  # "Simple 0.50": "data/model_ensembling/PCC2_reconnected/ensembled/simple_50"
+  # "Simple 0.75": "data/model_ensembling/PCC2_reconnected/ensembled/simple_75"
+  # "Simple 1.00": "data/model_ensembling/PCC2_reconnected/ensembled/simple_100"
+  # "STAPLE": "data/model_ensembling/PCC2_reconnected/ensembled/staple"
+  # "clDice": "data/model_ensembling/PCC2_reconnected/ensembled/cldice"
+
+
   #INFO: Ensembling on clDice Models w/ alpha = 50
   # GroundTruth: "data/model_validation/ground_truth"
   # "Simple 0.25": "data/model_ensembling/cldice_models_alpha_50/ensembled/simple_25"
@@ -62,6 +78,39 @@ mask_folders:
   # "STAPLE": "data/model_ensembling/cldice_models_alpha_50/ensembled/staple"
   # "clDice": "data/model_ensembling/cldice_models_alpha_50/ensembled/cldice"
 
+  #INFO: Ensembling on clDice Models w/ alpha = 50 with reconnected outputs
+  # GroundTruth: "data/model_validation/ground_truth"
+  # "Simple 0.25": "data/model_ensembling/cldice_50_reconnected/ensembled/simple_25"
+  # "Simple 0.50": "data/model_ensembling/cldice_50_reconnected/ensembled/simple_50"
+  # "Simple 0.75": "data/model_ensembling/cldice_50_reconnected/ensembled/simple_75"
+  # "Simple 1.00": "data/model_ensembling/cldice_50_reconnected/ensembled/simple_100"
+  # "STAPLE": "data/model_ensembling/cldice_50_reconnected/ensembled/staple"
+  # "clDice": "data/model_ensembling/cldice_50_reconnected/ensembled/cldice"
+  
+  #INFO: Ensembling on Original Models AND clDice alpha=0.5 with reconnected outputs
+  GroundTruth: "data/model_validation/ground_truth"
+  "Simple 0.25": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/simple_25"
+  "Simple 0.50": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/simple_50"
+  "Simple 0.75": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/simple_75"
+  "Simple 1.00": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/simple_100"
+  "STAPLE": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/staple"
+  "clDice": "data/model_ensembling/PCC2_and_cldice_alpha_50_reconnected/ensembled/cldice"
+  
+  #INFO: Ensembling on Original Models AND clDice alpha=0.5
+  # GroundTruth: "data/model_validation/ground_truth"
+  # "Simple 0.25": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/simple_25"
+  # "Simple 0.50": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/simple_50"
+  # "Simple 0.75": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/simple_75"
+  # "Simple 1.00": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/simple_100"
+  # "STAPLE": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/staple"
+  # "clDice": "data/model_ensembling/PCC2_and_cldice_alpha_50/ensembled/cldice"
+
+  #INFO: Reconnected Ensembled Masks
+  # GroundTruth: "data/model_validation/ground_truth"
+  # "clDice alpha=0.50 Simple 0.50": "data/reconnection/cldice_alpha_50_simple_50_ensemble"
+  # "clDice alpha=0.50 STAPLE": "data/reconnection/cldice_alpha_50_staple_ensemble"
+  # "PCC2 Simple 0.50": "data/reconnection/PCC2_original_models_simple_50_ensemble"
+  # "PCC2 Staple": "data/reconnection/PCC2_original_models_staple_ensemble"
 
   # TotalSegmenter: "data/model_validation/tot_seg"
   # nnUnet: "data/model_validation/nnunet"

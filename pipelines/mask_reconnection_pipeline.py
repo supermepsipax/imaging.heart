@@ -1,8 +1,10 @@
 import os
+import time
 import nrrd
 import numpy as np
 from pathlib import Path
-from utilities import ensure_continuous_body, load_config, load_nrrd_mask, sort_labelled_bodies_by_size
+from joblib import Parallel, delayed
+from utilities import ensure_continuous_body, load_config, load_mask, glob_masks, sort_labelled_bodies_by_size
 from utilities import extract_centerline_skimage, skeleton_to_dense_graph, create_distance_transform_from_mask
 from visualizations.visualize_3d import visualize_mask_overlap
 
@@ -184,7 +186,42 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
     return reconnected_mask, connections_made
 
 
-def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, config_path=None, visualize=None):
+def _process_single_mask(mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold):
+    input_mask, header = load_mask(mask_path)
+    stem = mask_path.name.removesuffix('.nii.gz').removesuffix('.nii').removesuffix('.nrrd')
+    out_path = Path(output_folder) / f"{stem}.nrrd"
+
+    is_continuous, _ = ensure_continuous_body(input_mask)
+
+    if is_continuous:
+        print(f"  [{mask_path.name}] Already continuous, copying unchanged.")
+        nrrd.write(str(out_path), input_mask, header)
+        return mask_path.name, {
+            'connections_made': 0,
+            'was_continuous': True,
+            'is_continuous_after': True,
+        }
+
+    reconnected_mask, connections_made = reconnect_mask(
+        input_mask,
+        distance_threshold=distance_threshold,
+        direction_lookback=direction_lookback,
+        alignment_threshold=alignment_threshold,
+    )
+
+    is_continuous_after, _ = ensure_continuous_body(reconnected_mask)
+    print(f"  [{mask_path.name}] Connections made: {connections_made} | "
+          f"Continuous after: {is_continuous_after}")
+
+    nrrd.write(str(out_path), reconnected_mask, header)
+    return mask_path.name, {
+        'connections_made': connections_made,
+        'was_continuous': False,
+        'is_continuous_after': is_continuous_after,
+    }
+
+
+def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, config_path=None, visualize=None, n_jobs=1):
     """
     Batch reconnection of disconnected coronary artery segmentation masks.
 
@@ -193,12 +230,18 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     their skeletons. Masks that are already continuous are copied unchanged.
     Results are saved as NRRD files preserving the original headers.
 
+    When n_jobs != 1, files are processed in parallel using joblib and
+    visualization is disabled. When n_jobs=1 (default), files are processed
+    sequentially with optional visualization support.
+
     Args:
-        mask_folder (str, optional): Path to folder containing .nrrd masks to process.
+        mask_folder (str, optional): Path to folder containing .nrrd/.nii/.nii.gz masks to process.
         output_folder (str, optional): Path to folder where reconnected masks are saved.
         config (dict, optional): Configuration dictionary with pipeline parameters.
         config_path (str, optional): Path to YAML/JSON config file (used if config not given).
-        visualize (bool, optional): Reserved for future visualization support.
+        visualize (bool, optional): Whether to visualize reconnected masks (sequential mode only).
+        n_jobs (int, optional): Number of parallel workers. -1 uses all cores, 1 runs
+                                sequentially with visualization support. Defaults to 1.
 
     Config keys:
         mask_folder (str): Input folder path.
@@ -206,6 +249,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
         distance_threshold (float): Max endpoint distance in voxels to attempt bridging (default: 5).
         direction_lookback (int): Skeleton voxels to walk back for direction estimation (default: 5).
         alignment_threshold (float): Min cosine similarity for directional alignment (default: 0.7).
+        n_jobs (int): Number of parallel workers (default: 1).
 
     Returns:
         dict: Per-file result summary with keys:
@@ -231,7 +275,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     distance_threshold = config.get('distance_threshold', 5)
     direction_lookback = config.get('direction_lookback', 5)
     alignment_threshold = config.get('alignment_threshold', 0.7)
-
+    n_jobs = config.get('n_jobs', n_jobs)
 
     if mask_folder is None:
         raise ValueError("mask_folder must be provided either as a parameter or in the config file")
@@ -240,18 +284,36 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
 
     os.makedirs(output_folder, exist_ok=True)
 
-    nrrd_files = list(Path(mask_folder).glob('*.nrrd'))
-    results = {}
+    mask_files = glob_masks(mask_folder)
 
-    print(f"Found {len(nrrd_files)} mask(s) to process")
+    print(f"Found {len(mask_files)} mask(s) to process")
     print(f"  distance_threshold={distance_threshold} voxels, "
           f"direction_lookback={direction_lookback}, "
           f"alignment_threshold={alignment_threshold}")
 
-    for mask_path in nrrd_files:
-        print(f"\n[{mask_path.name}]")
-        input_mask, header = load_nrrd_mask(mask_path)
-        out_path = Path(output_folder) / mask_path.name
+    if n_jobs != 1:
+        print(f"  Parallel mode: n_jobs={n_jobs}")
+        batch_start = time.time()
+        file_results = Parallel(n_jobs=n_jobs)(
+            delayed(_process_single_mask)(
+                mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold
+            )
+            for mask_path in mask_files
+        )
+        elapsed = time.time() - batch_start
+        print(f"\nBatch complete: {len(mask_files)} file(s) in {elapsed:.1f}s "
+              f"({elapsed / max(len(mask_files), 1):.1f}s avg/file)")
+        return dict(file_results)
+
+    results = {}
+    batch_start = time.time()
+    n_files = len(mask_files)
+    for file_idx, mask_path in enumerate(mask_files, 1):
+        file_start = time.time()
+        print(f"\n[{file_idx}/{n_files}] {mask_path.name}")
+        input_mask, header = load_mask(mask_path)
+        stem = mask_path.name.removesuffix('.nii.gz').removesuffix('.nii').removesuffix('.nrrd')
+        out_path = Path(output_folder) / f"{stem}.nrrd"
 
         is_continuous, _ = ensure_continuous_body(input_mask)
 
@@ -263,6 +325,11 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
                 'was_continuous': True,
                 'is_continuous_after': True,
             }
+            elapsed = time.time() - batch_start
+            avg = elapsed / file_idx
+            remaining = avg * (n_files - file_idx)
+            print(f"  Done in {time.time() - file_start:.1f}s | "
+                  f"ETA: {remaining:.0f}s remaining ({file_idx}/{n_files})")
             continue
 
         reconnected_mask, connections_made = reconnect_mask(
@@ -283,6 +350,12 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
             'is_continuous_after': is_continuous_after,
         }
 
+        elapsed = time.time() - batch_start
+        avg = elapsed / file_idx
+        remaining = avg * (n_files - file_idx)
+        print(f"  Done in {time.time() - file_start:.1f}s | "
+              f"ETA: {remaining:.0f}s remaining ({file_idx}/{n_files})")
+
         if visualize and connections_made > 0:
             visualize_mask_overlap(
                 input_mask,
@@ -292,4 +365,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
                 label_2="Reconnected",
             )
 
+    total = time.time() - batch_start
+    print(f"\nBatch complete: {n_files} file(s) in {total:.1f}s "
+          f"({total / max(n_files, 1):.1f}s avg/file)")
     return results

@@ -5,7 +5,17 @@ import pickle
 import tarfile
 import numpy as np
 import re
+import SimpleITK as sitk
 from pathlib import Path
+
+
+SUPPORTED_EXTENSIONS = ('.nrrd', '.nii', '.nii.gz')
+
+
+def _is_nifti(path):
+    name = Path(path).name.lower()
+    return name.endswith('.nii.gz') or name.endswith('.nii')
+
 
 def load_nrrd_mask(path, verbose=False):
     data, header = nrrd.read(path)
@@ -17,6 +27,49 @@ def load_nrrd_mask(path, verbose=False):
             print(f'{heading}: {value}')
 
     return data, header
+
+
+def load_nifti_mask(path, verbose=False):
+    img = sitk.ReadImage(str(path))
+    data = sitk.GetArrayFromImage(img)
+
+    if verbose:
+        print("Shape:", data.shape)
+        print("Spacing:", img.GetSpacing())
+        print("Origin:", img.GetOrigin())
+        print("Direction:", img.GetDirection())
+
+    return data, img
+
+
+def load_mask(path, verbose=False):
+    if _is_nifti(path):
+        data, sitk_img = load_nifti_mask(path, verbose=verbose)
+        header = sitk_header_to_nrrd(sitk_img)
+        return data, header
+    return load_nrrd_mask(path, verbose=verbose)
+
+
+def sitk_header_to_nrrd(sitk_img):
+    spacing = sitk_img.GetSpacing()
+    origin = sitk_img.GetOrigin()
+    direction = sitk_img.GetDirection()
+    dim = sitk_img.GetDimension()
+    dir_matrix = np.array(direction).reshape(dim, dim)
+    header = {
+        'space': 'left-posterior-superior',
+        'space directions': (dir_matrix * np.array(spacing)).T.tolist(),
+        'space origin': list(origin),
+    }
+    return header
+
+
+def glob_masks(folder):
+    folder = Path(folder)
+    files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        files.extend(folder.glob(f'*{ext}'))
+    return sorted(set(files))
 
 def strip_filenames(paths, verbose=False):
     """

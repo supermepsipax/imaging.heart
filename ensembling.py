@@ -202,7 +202,7 @@ def fuse_staple(masks, threshold, model_names=None, foreground_value=1):
     images = [sitk.GetImageFromArray((m > 0).astype(np.uint16)) for m in masks]
     staple_filter = sitk.STAPLEImageFilter()
     staple_filter.SetForegroundValue(foreground_value)
-    prob_map = staple_filter.Execute(*images)
+    prob_map = staple_filter.Execute(images)
     prob_array = sitk.GetArrayFromImage(prob_map)
     fused = (prob_array >= threshold).astype(masks[0].dtype)
 

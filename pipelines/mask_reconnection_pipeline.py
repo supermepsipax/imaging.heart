@@ -194,7 +194,6 @@ def _process_single_mask(mask_path, output_folder, distance_threshold, direction
     is_continuous, _ = ensure_continuous_body(input_mask)
 
     if is_continuous:
-        print(f"  [{mask_path.name}] Already continuous, copying unchanged.")
         nrrd.write(str(out_path), input_mask, header)
         return mask_path.name, {
             'connections_made': 0,
@@ -210,8 +209,6 @@ def _process_single_mask(mask_path, output_folder, distance_threshold, direction
     )
 
     is_continuous_after, _ = ensure_continuous_body(reconnected_mask)
-    print(f"  [{mask_path.name}] Connections made: {connections_made} | "
-          f"Continuous after: {is_continuous_after}")
 
     nrrd.write(str(out_path), reconnected_mask, header)
     return mask_path.name, {
@@ -294,7 +291,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     if n_jobs != 1:
         print(f"  Parallel mode: n_jobs={n_jobs}")
         batch_start = time.time()
-        file_results = Parallel(n_jobs=n_jobs)(
+        file_results = Parallel(n_jobs=n_jobs, verbose=10)(
             delayed(_process_single_mask)(
                 mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold
             )

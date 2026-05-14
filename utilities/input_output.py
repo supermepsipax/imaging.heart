@@ -5,7 +5,6 @@ import pickle
 import tarfile
 import numpy as np
 import re
-import SimpleITK as sitk
 from pathlib import Path
 
 
@@ -30,6 +29,7 @@ def load_nrrd_mask(path, verbose=False):
 
 
 def load_nifti_mask(path, verbose=False):
+    import SimpleITK as sitk
     img = sitk.ReadImage(str(path))
     data = sitk.GetArrayFromImage(img)
 
@@ -51,6 +51,7 @@ def load_mask(path, verbose=False):
 
 
 def sitk_header_to_nrrd(sitk_img):
+    import SimpleITK as sitk
     spacing = sitk_img.GetSpacing()
     origin = sitk_img.GetOrigin()
     direction = sitk_img.GetDirection()

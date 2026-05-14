@@ -6,7 +6,6 @@ from pathlib import Path
 from joblib import Parallel, delayed
 from utilities import ensure_continuous_body, load_config, load_mask, glob_masks, sort_labelled_bodies_by_size
 from utilities import extract_centerline_skimage, skeleton_to_dense_graph, create_distance_transform_from_mask
-from visualizations.visualize_3d import visualize_mask_overlap
 
 
 def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
@@ -354,6 +353,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
               f"ETA: {remaining:.0f}s remaining ({file_idx}/{n_files})")
 
         if visualize and connections_made > 0:
+            from visualizations.visualize_3d import visualize_mask_overlap
             visualize_mask_overlap(
                 input_mask,
                 reconnected_mask,

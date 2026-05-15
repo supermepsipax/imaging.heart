@@ -40,6 +40,25 @@ def _get_endpoint_direction(endpoint, dense_graph, lookback=5):
         return None, path
     return direction / norm, path
 
+def _local_edt_radius(input_mask, voxel_a, voxel_b, padding):
+    """
+    Compute EDT on a local crop around two voxels and return their radius values.
+
+    Avoids computing the full-mask EDT by extracting a tight region padded
+    enough that EDT values at the query voxels match the global transform.
+    """
+    coords = np.array([voxel_a, voxel_b])
+    min_corner = np.maximum(coords.min(axis=0) - padding, 0)
+    max_corner = np.minimum(coords.max(axis=0) + padding + 1, np.array(input_mask.shape))
+
+    slices = tuple(slice(lo, hi) for lo, hi in zip(min_corner, max_corner))
+    local_dt = create_distance_transform_from_mask(input_mask[slices])
+
+    local_a = np.array(voxel_a) - min_corner
+    local_b = np.array(voxel_b) - min_corner
+    return float(local_dt[tuple(local_a)]), float(local_dt[tuple(local_b)])
+
+
 def _fill_bridge(reconnected_mask, startpoint, endpoint, radius1, radius2, dir1, dir2):
     """
     Draw a bridge between two skeleton endpoints using a cubic Bezier curve, expanding each centerline
@@ -91,9 +110,9 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
     For each pair of bodies, skeletonizes both, finds their endpoints, and checks
     whether any cross-body endpoint pair is close enough and directionally aligned
     to be a broken vessel. Aligned pairs within the distance threshold are bridged
-    via linear interpolation, with each bridge voxel expanded into a sphere whose
-    radius is linearly interpolated between the two endpoint radii (read from the
-    Euclidean distance transform of the full input mask, computed once).
+    via Bezier interpolation, with each bridge voxel expanded into a sphere whose
+    radius is linearly interpolated between the two endpoint radii (read from a
+    localized EDT crop around each qualifying endpoint pair).
 
     The alignment check requires that each endpoint's outward direction vector
     (computed by walking back `direction_lookback` voxels along the skeleton) points
@@ -118,8 +137,7 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
     if is_continuous:
         return input_mask.copy(), 0
 
-    # Compute once — used to look up vessel radius at each candidate endpoint.
-    distance_array = create_distance_transform_from_mask(input_mask)
+    edt_padding = distance_threshold + direction_lookback
 
     sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
     n_bodies = len(sorted_bodies)
@@ -170,11 +188,13 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
 
                         start_idx_i = min(len(path_i) - 1, direction_lookback // 2)
                         start_voxel_i = path_i[start_idx_i]
-                        radius_i = float(distance_array[start_voxel_i])
 
                         start_idx_j = min(len(path_j) - 1, direction_lookback // 2)
                         start_voxel_j = path_j[start_idx_j]
-                        radius_j = float(distance_array[start_voxel_j])
+
+                        radius_i, radius_j = _local_edt_radius(
+                            input_mask, start_voxel_i, start_voxel_j, edt_padding
+                        )
 
                         _fill_bridge(reconnected_mask, start_voxel_i, start_voxel_j, radius_i, radius_j, dir_i, dir_j)
                         connections_made += 1
@@ -281,6 +301,21 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     os.makedirs(output_folder, exist_ok=True)
 
     mask_files = glob_masks(mask_folder)
+
+    existing_masks = []
+    for mask_path in mask_files:
+        stem = mask_path.name.removesuffix('.nii.gz').removesuffix('.nii').removesuffix('.nrrd')
+        if (Path(output_folder) / f"{stem}.nrrd").exists():
+            existing_masks.append(mask_path)
+
+    if existing_masks:
+        print(f"\n{len(existing_masks)} of {len(mask_files)} mask(s) already exist in the output folder.")
+        choice = input("(o)verwrite all / (s)kip existing? [o/s]: ").strip().lower()
+        if choice == 's':
+            mask_files = [p for p in mask_files if p not in existing_masks]
+            print(f"Skipping {len(existing_masks)} existing mask(s), {len(mask_files)} remaining.")
+        else:
+            print("Overwriting existing masks.")
 
     print(f"Found {len(mask_files)} mask(s) to process")
     print(f"  distance_threshold={distance_threshold} voxels, "

@@ -165,11 +165,16 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
         return input_mask.copy(), 0
 
     body_data = []
+    mask_shape = input_mask.shape
     for label, size in labels_by_size:
         slc = body_slices[label - 1]
-        offset = tuple(s.start for s in slc)
+        padded_slc = tuple(
+            slice(max(s.start - 1, 0), min(s.stop + 1, dim))
+            for s, dim in zip(slc, mask_shape)
+        )
+        offset = tuple(s.start for s in padded_slc)
 
-        crop = (labelled_bodies[slc] == label).astype(np.uint8)
+        crop = (labelled_bodies[padded_slc] == label).astype(np.uint8)
         skeleton = extract_centerline_skimage(crop)
         local_graph = skeleton_to_dense_graph(skeleton)
 

@@ -54,6 +54,17 @@ def classify_lca_rca_from_spatial_position(body_masks, anatomical_info, verbose=
             print(f"[Spatial Classification] Cannot determine left-right axis from anatomical info")
         return None
 
+    # The space string tells us which world axis is left/right, but not whether increasing
+    # voxel indices along that axis go in the positive or negative world direction.
+    # space_directions[left_axis][left_axis] gives the actual sign: if negative, increasing
+    # voxel index moves opposite to what the space string implies, so we must flip left_sign.
+    if 'space_directions' in anatomical_info:
+        sd = np.array(anatomical_info['space_directions'])
+        if left_axis < sd.shape[0] and left_axis < sd.shape[1]:
+            diag_sign = int(np.sign(sd[left_axis, left_axis]))
+            if diag_sign != 0:
+                left_sign *= diag_sign
+
     if verbose:
         print(f"\n[Spatial Classification] Using spatial position to classify LCA/RCA")
         print(f"                         Left-right axis: {left_axis} ({'left' if left_sign > 0 else 'right'} is positive)")

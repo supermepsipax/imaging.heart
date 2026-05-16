@@ -41,9 +41,23 @@ def get_anatomical_axis_info(anatomical_info, axis_name):
         direction_lower = direction.lower()
 
         if direction_lower == axis_name_lower:
-            return idx, +1
+            multiplier = +1
         elif direction_lower == opposites.get(axis_name_lower):
-            return idx, -1
+            multiplier = -1
+        else:
+            continue
+
+        # The space string declares the positive world direction per axis, but
+        # space_directions[idx][idx] can be negative, meaning increasing voxel index
+        # actually moves opposite to what the space string implies. Correct for this.
+        if 'space_directions' in anatomical_info:
+            sd = np.array(anatomical_info['space_directions'])
+            if idx < sd.shape[0] and idx < sd.shape[1]:
+                diag_sign = int(np.sign(sd[idx, idx]))
+                if diag_sign != 0:
+                    multiplier *= diag_sign
+
+        return idx, multiplier
 
     return None, None
 

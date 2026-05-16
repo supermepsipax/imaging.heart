@@ -52,14 +52,25 @@ def load_mask(path, verbose=False):
 
 def sitk_header_to_nrrd(sitk_img):
     import SimpleITK as sitk
-    spacing = sitk_img.GetSpacing()
+    spacing = sitk_img.GetSpacing()   # ITK order: (x, y, z)
     origin = sitk_img.GetOrigin()
     direction = sitk_img.GetDirection()
     dim = sitk_img.GetDimension()
     dir_matrix = np.array(direction).reshape(dim, dim)
+
+    # GetArrayFromImage returns NumPy with axes in reversed order vs ITK:
+    #   NumPy axis 0 = ITK axis (dim-1)  (slowest = z for 3-D)
+    #   NumPy axis i = ITK axis (dim-1-i)
+    # space_directions[numpy_axis_i] must be the physical LPS displacement
+    # for one voxel step in that NumPy axis, i.e. dir_matrix[:, itk_axis] * spacing[itk_axis].
+    space_dirs = []
+    for numpy_axis in range(dim):
+        itk_axis = dim - 1 - numpy_axis
+        space_dirs.append((dir_matrix[:, itk_axis] * spacing[itk_axis]).tolist())
+
     header = {
         'space': 'left-posterior-superior',
-        'space directions': (dir_matrix * np.array(spacing)).T.tolist(),
+        'space directions': space_dirs,
         'space origin': list(origin),
     }
     return header
@@ -218,12 +229,17 @@ def extract_anatomical_info(nrrd_header):
         }
 
         if space_lower in coordinate_systems:
+            # Store the world-axis positive names; actual per-array-axis directions
+            # are resolved below once space_directions is available.
+            anatomical_info['_world_positive_axes'] = coordinate_systems[space_lower]['axis_directions']
+            # Fallback labels in case space_directions is absent
             anatomical_info['axis_directions'] = coordinate_systems[space_lower]['axis_directions']
             anatomical_info['axis_labels'] = coordinate_systems[space_lower]['axis_labels']
         else:
             # For unknown coordinate systems, try to parse from the space string
             parts = space_lower.split('-')
             if len(parts) == 3:
+                anatomical_info['_world_positive_axes'] = parts
                 anatomical_info['axis_directions'] = parts
                 anatomical_info['axis_labels'] = [f"{parts[i]}-{_get_opposite_direction(parts[i])}"
                                                    for i in range(3)]
@@ -237,22 +253,41 @@ def extract_anatomical_info(nrrd_header):
         anatomical_info['space_directions'] = space_directions
 
         # Check if axis-aligned (diagonal matrix)
-        # An axis-aligned matrix has non-zero values only on the diagonal
-        is_diagonal = True
-        spacings = []
-
-        for i in range(min(3, space_directions.shape[0])):
-            for j in range(min(3, space_directions.shape[1])):
-                if i == j:
-                    # Diagonal element - should be non-zero
-                    spacings.append(np.abs(space_directions[i, j]))
-                else:
-                    # Off-diagonal element - should be near zero for axis-aligned
-                    if np.abs(space_directions[i, j]) > 1e-6:
-                        is_diagonal = False
-
+        is_diagonal = all(
+            np.abs(space_directions[i, j]) <= 1e-6
+            for i in range(min(3, space_directions.shape[0]))
+            for j in range(min(3, space_directions.shape[1]))
+            if i != j
+        )
         anatomical_info['is_axis_aligned'] = is_diagonal
+
+        # Spacing = physical size of one voxel step along each array axis.
+        # Using row norms handles both diagonal and non-diagonal matrices correctly.
+        spacings = [float(np.linalg.norm(space_directions[i]))
+                    for i in range(min(3, space_directions.shape[0]))]
         anatomical_info['spacings'] = spacings
+
+        # Derive per-array-axis anatomical directions from space_directions rather
+        # than assuming world-axis order == array-axis order (which breaks when
+        # axes are permuted, e.g. SimpleITK NIfTI → NumPy axis reversal).
+        world_positive = anatomical_info.get('_world_positive_axes')
+        if world_positive and len(world_positive) == 3:
+            opposites = {
+                'left': 'right', 'right': 'left',
+                'anterior': 'posterior', 'posterior': 'anterior',
+                'superior': 'inferior', 'inferior': 'superior',
+            }
+            axis_directions = []
+            axis_labels = []
+            for i in range(min(3, space_directions.shape[0])):
+                dominant_world = int(np.argmax(np.abs(space_directions[i])))
+                name = world_positive[dominant_world]
+                if space_directions[i, dominant_world] < 0:
+                    name = opposites.get(name, name)
+                axis_directions.append(name)
+                axis_labels.append(f"{name}-{opposites.get(name, name)}")
+            anatomical_info['axis_directions'] = axis_directions
+            anatomical_info['axis_labels'] = axis_labels
 
     # Extract space origin
     if 'space origin' in nrrd_header:

@@ -4,7 +4,9 @@ import nrrd
 import numpy as np
 from pathlib import Path
 from joblib import Parallel, delayed
-from utilities import ensure_continuous_body, load_config, load_mask, glob_masks, sort_labelled_bodies_by_size
+import networkx as nx
+from scipy import ndimage
+from utilities import ensure_continuous_body, load_config, load_mask, glob_masks
 from utilities import extract_centerline_skimage, skeleton_to_dense_graph, create_distance_transform_from_mask
 
 
@@ -103,7 +105,7 @@ def _fill_bridge(reconnected_mask, startpoint, endpoint, radius1, radius2, dir1,
                         )
                         reconnected_mask[v] = 1
 
-def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, alignment_threshold=0.7):
+def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, alignment_threshold=0.7, min_body_size=10):
     """
     Attempts to reconnect disconnected regions in a single binary mask.
 
@@ -127,27 +129,58 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
         alignment_threshold (float): Minimum cosine similarity (dot product) required between
                                      each endpoint's outward direction and the vector toward the
                                      opposing endpoint. 1.0 = perfectly aligned, 0.0 = orthogonal.
+        min_body_size (int): Minimum number of voxels for a disconnected body to be
+                             considered for reconnection. Smaller fragments are skipped
+                             as noise. Defaults to 10.
 
     Returns:
         tuple: (reconnected_mask, connections_made)
             - reconnected_mask (np.ndarray): Binary mask with interpolated bridge voxels added.
             - connections_made (int): Number of endpoint pairs that were bridged.
     """
-    is_continuous, labelled_bodies = ensure_continuous_body(input_mask)
-    if is_continuous:
+    connectivity_structure = np.ones((3, 3, 3), dtype=int)
+    labelled_bodies, num_bodies = ndimage.label(input_mask, structure=connectivity_structure)
+
+    if num_bodies <= 1:
         return input_mask.copy(), 0
 
     edt_padding = distance_threshold + direction_lookback
 
-    sorted_bodies = sort_labelled_bodies_by_size(labelled_bodies)
-    n_bodies = len(sorted_bodies)
+    body_sizes = np.bincount(labelled_bodies.ravel())
+    body_slices = ndimage.find_objects(labelled_bodies)
+
+    labels_by_size = [
+        (label, body_sizes[label])
+        for label in range(1, num_bodies + 1)
+        if body_sizes[label] >= min_body_size
+    ]
+    labels_by_size.sort(key=lambda x: x[1], reverse=True)
+    n_bodies = len(labels_by_size)
+
+    skipped = num_bodies - n_bodies
+    if skipped > 0:
+        print(f"      Skipped {skipped} fragment(s) below {min_body_size} voxels")
+
+    if n_bodies <= 1:
+        return input_mask.copy(), 0
 
     body_data = []
-    for body_mask in sorted_bodies:
-        skeleton = extract_centerline_skimage(body_mask)
-        dense_graph = skeleton_to_dense_graph(skeleton)
-        endpoints = [node for node in dense_graph.nodes() if dense_graph.degree(node) == 1]
-        body_data.append({'graph': dense_graph, 'endpoints': endpoints})
+    for label, size in labels_by_size:
+        slc = body_slices[label - 1]
+        offset = tuple(s.start for s in slc)
+
+        crop = (labelled_bodies[slc] == label).astype(np.uint8)
+        skeleton = extract_centerline_skimage(crop)
+        local_graph = skeleton_to_dense_graph(skeleton)
+
+        mapping = {
+            node: (node[0] + offset[0], node[1] + offset[1], node[2] + offset[2])
+            for node in local_graph.nodes()
+        }
+        global_graph = nx.relabel_nodes(local_graph, mapping)
+
+        endpoints = [node for node in global_graph.nodes() if global_graph.degree(node) == 1]
+        body_data.append({'graph': global_graph, 'endpoints': endpoints})
 
     reconnected_mask = input_mask.copy()
     connections_made = 0
@@ -205,7 +238,7 @@ def reconnect_mask(input_mask, distance_threshold=5, direction_lookback=5, align
     return reconnected_mask, connections_made
 
 
-def _process_single_mask(mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold):
+def _process_single_mask(mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold, min_body_size):
     input_mask, header = load_mask(mask_path)
     stem = mask_path.name.removesuffix('.nii.gz').removesuffix('.nii').removesuffix('.nrrd')
     out_path = Path(output_folder) / f"{stem}.nrrd"
@@ -225,6 +258,7 @@ def _process_single_mask(mask_path, output_folder, distance_threshold, direction
         distance_threshold=distance_threshold,
         direction_lookback=direction_lookback,
         alignment_threshold=alignment_threshold,
+        min_body_size=min_body_size,
     )
 
     is_continuous_after, _ = ensure_continuous_body(reconnected_mask)
@@ -291,6 +325,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     distance_threshold = config.get('distance_threshold', 5)
     direction_lookback = config.get('direction_lookback', 5)
     alignment_threshold = config.get('alignment_threshold', 0.7)
+    min_body_size = config.get('min_body_size', 10)
     n_jobs = config.get('n_jobs', n_jobs)
 
     if mask_folder is None:
@@ -320,14 +355,15 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
     print(f"Found {len(mask_files)} mask(s) to process")
     print(f"  distance_threshold={distance_threshold} voxels, "
           f"direction_lookback={direction_lookback}, "
-          f"alignment_threshold={alignment_threshold}")
+          f"alignment_threshold={alignment_threshold}, "
+          f"min_body_size={min_body_size}")
 
     if n_jobs != 1:
         print(f"  Parallel mode: n_jobs={n_jobs}")
         batch_start = time.time()
         file_results = Parallel(n_jobs=n_jobs, verbose=10, prefer="threads")(
             delayed(_process_single_mask)(
-                mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold
+                mask_path, output_folder, distance_threshold, direction_lookback, alignment_threshold, min_body_size
             )
             for mask_path in mask_files
         )
@@ -368,6 +404,7 @@ def reconnect_mask_batch(mask_folder=None, output_folder=None, config=None, conf
             distance_threshold=distance_threshold,
             direction_lookback=direction_lookback,
             alignment_threshold=alignment_threshold,
+            min_body_size=min_body_size,
         )
 
         is_continuous_after, _ = ensure_continuous_body(reconnected_mask)
